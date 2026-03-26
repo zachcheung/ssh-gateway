@@ -19,7 +19,7 @@ func main() {
 	mgr := usermgr.New()
 
 	if err := reconcile(mgr); err != nil {
-		log.Fatalf("initial reconcile: %v", err)
+		log.Printf("initial reconcile: %v (waiting for SIGHUP)", err)
 	}
 
 	if err := sshd.GenerateHostKeys(); err != nil {

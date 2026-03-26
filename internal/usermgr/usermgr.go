@@ -144,7 +144,7 @@ func (m *Manager) addUser(name string) error {
 	if err := m.appendLine(m.passwdPath, fmt.Sprintf("%s:x:%d:%d::%s/%s:%s", name, uid, gid, m.homeBase, name, defaultShell)); err != nil {
 		return fmt.Errorf("append passwd: %w", err)
 	}
-	if err := m.appendLine(m.shadowPath, fmt.Sprintf("%s:!:::::::", name)); err != nil {
+	if err := m.appendLine(m.shadowPath, fmt.Sprintf("%s:*:::::::", name)); err != nil {
 		return fmt.Errorf("append shadow: %w", err)
 	}
 	if err := m.addGroupMember(managedGroup, name); err != nil {

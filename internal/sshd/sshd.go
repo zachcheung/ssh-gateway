@@ -10,7 +10,6 @@ import (
 
 const (
 	sshdBin    = "/usr/sbin/sshd"
-	configPath = "/etc/ssh/sshd_config"
 	hostKeyDir = "/etc/ssh"
 )
 
@@ -40,6 +39,7 @@ func Start() (*Process, error) {
 	cmd := exec.Command(sshdBin, "-D", "-e")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start sshd: %w", err)
