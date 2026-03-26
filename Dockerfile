@@ -26,7 +26,7 @@ EOF
 
 COPY --from=builder /ssh-gateway /usr/local/bin/ssh-gateway
 
-VOLUME /etc/ssh
+VOLUME /etc/ssh /home
 EXPOSE 22
 
 CMD ["ssh-gateway"]
