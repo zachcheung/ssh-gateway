@@ -3,13 +3,32 @@ name: ssh-gateway-test
 services:
   gateway:
     build: .
-    ports:
-      - 2222:22
     volumes:
-      - ./.test/gateway-config:/etc/ssh-gateway:ro,z
+      - config:/etc/ssh-gateway:ro
 
-  backend:
-    build: test
+  dst:
+    build:
+      context: test
+      dockerfile: Dockerfile.dst
     volumes:
-      - ./.test/alice/.ssh:/home/alice/.ssh:ro,z
-      - ./.test/bob/.ssh:/home/bob/.ssh:ro,z
+      - keys:/keys:ro
+
+  test:
+    build:
+      context: test
+      dockerfile: Dockerfile.test
+    depends_on:
+      - gateway
+      - dst
+    volumes:
+      - keys:/keys
+      - config:/config
+      - /var/run/docker.sock:/var/run/docker.sock
+    security_opt:
+      - label:disable
+    environment:
+      - COMPOSE_PROJECT_NAME=ssh-gateway-test
+
+volumes:
+  keys:
+  config:

@@ -9,8 +9,6 @@ mkdir -p /run/sshd
 ssh-keygen -A
 useradd -m alice
 useradd -m bob
-# bind-mounted .ssh dirs are owned by host UID, not container users
-echo 'StrictModes no' >> /etc/ssh/sshd_config
 EOF
 
 EXPOSE 22

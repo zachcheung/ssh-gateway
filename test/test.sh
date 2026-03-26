@@ -1,10 +1,7 @@
 #!/bin/sh
+set -eu
 
-cd "$(dirname "$0")/.."
-
-COMPOSE="docker compose -f compose.test.yml"
-GATEWAY_PORT=2222
-SSH_CFG=.test/ssh_config
+PROJECT=${COMPOSE_PROJECT_NAME:-ssh-gateway-test}
 
 pass=0
 fail=0
@@ -23,66 +20,66 @@ run_test() {
   printf "\n== %s ==\n" "$1"
 }
 
+container_id() {
+  docker ps -q --filter "label=com.docker.compose.project=$PROJECT" \
+    --filter "label=com.docker.compose.service=$1"
+}
+
+SSH_CFG=/tmp/ssh_config
+
 ssh_jump() {
   user=$1 key=$2 cmd=$3
-  cat > "$SSH_CFG" <<EOF
+  cat > "$SSH_CFG" <<SSHCFG
 Host gateway
-  HostName localhost
-  Port $GATEWAY_PORT
+  HostName gateway
 
-Host backend
+Host dst
   ProxyJump gateway
 
 Host *
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
-  IdentityFile $key
+  IdentityFile /keys/$key
   IdentitiesOnly yes
-EOF
-  ssh -F "$SSH_CFG" -J "${user}@gateway" "${user}@backend" "$cmd"
+SSHCFG
+  ssh -F "$SSH_CFG" -J "${user}@gateway" "${user}@dst" "$cmd"
 }
 
 reload_gateway() {
-  cat > .test/gateway-config/config.yaml
+  cat > /config/config.yaml
   printf "  reloading gateway...\n"
-  $COMPOSE kill -s HUP gateway
+  docker kill -s HUP "$(container_id gateway)" > /dev/null
   printf "  reloaded\n"
   sleep 1
 }
 
-cleanup() {
-  $COMPOSE down --remove-orphans
-  rm -rf .test
+set_authorized_key() {
+  user=$1 pubkey=$2
+  docker exec "$(container_id dst)" sh -c "
+    mkdir -m 700 -p /home/$user/.ssh
+    cp /keys/$pubkey /home/$user/.ssh/authorized_keys
+    chown -R $user:$user /home/$user/.ssh
+  "
 }
-trap cleanup EXIT
 
-rm -rf .test
-mkdir -p .test/gateway-config .test/keys \
-  .test/alice/.ssh .test/bob/.ssh
+rm -f /keys/* /config/*
+printf "Generating keys...\n"
+ssh-keygen -t ed25519 -f /keys/id_alice -N '' -C alice@laptop > /dev/null 2>&1
+ssh-keygen -t ed25519 -f /keys/id_alice_new -N '' -C alice@new-laptop > /dev/null 2>&1
+ssh-keygen -t ed25519 -f /keys/id_bob -N '' -C bob@desktop > /dev/null 2>&1
 
-ssh-keygen -t ed25519 -f .test/keys/id_alice -N "" -C "alice@laptop" > /dev/null 2>&1
-ssh-keygen -t ed25519 -f .test/keys/id_alice_new -N "" -C "alice@new-laptop" > /dev/null 2>&1
-ssh-keygen -t ed25519 -f .test/keys/id_bob -N "" -C "bob@desktop" > /dev/null 2>&1
+ALICE_PUB=$(cat /keys/id_alice.pub)
+ALICE_NEW_PUB=$(cat /keys/id_alice_new.pub)
+BOB_PUB=$(cat /keys/id_bob.pub)
 
-ALICE_KEY=.test/keys/id_alice
-ALICE_PUB=$(cat .test/keys/id_alice.pub)
-ALICE_NEW_KEY=.test/keys/id_alice_new
-ALICE_NEW_PUB=$(cat .test/keys/id_alice_new.pub)
-BOB_KEY=.test/keys/id_bob
-BOB_PUB=$(cat .test/keys/id_bob.pub)
-
-cp .test/keys/id_alice.pub .test/alice/.ssh/authorized_keys
-cp .test/keys/id_bob.pub .test/bob/.ssh/authorized_keys
-chmod 644 .test/alice/.ssh/authorized_keys .test/bob/.ssh/authorized_keys
-
-printf "Building and starting services...\n"
-$COMPOSE up -d --build
+set_authorized_key alice id_alice.pub
+set_authorized_key bob id_bob.pub
 
 printf "Waiting for gateway...\n"
 i=0
-while [ "$i" -lt 30 ]; do
-  $COMPOSE logs gateway 2>/dev/null | grep -q "sshd started" && break
+while [ "$i" -lt 15 ]; do
+  docker logs "$(container_id gateway)" 2>&1 | grep -q "sshd started" && break
   sleep 1
   i=$((i + 1))
 done
@@ -91,14 +88,14 @@ done
 run_test "Add alice and SSH jump"
 
 reload_gateway <<EOF
-project: 'test'
+project: test
 users:
-  - name: 'alice'
+  - name: alice
     keys:
       - '$ALICE_PUB'
 EOF
 
-if ssh_jump alice "$ALICE_KEY" "echo jump-ok" 2>/dev/null | grep -q "jump-ok"; then
+if ssh_jump alice id_alice "echo jump-ok" 2>/dev/null | grep -q "jump-ok"; then
   ok "alice can jump through gateway"
 else
   ng "alice jump through gateway failed"
@@ -108,23 +105,23 @@ fi
 run_test "Add bob alongside alice"
 
 reload_gateway <<EOF
-project: 'test'
+project: test
 users:
-  - name: 'alice'
+  - name: alice
     keys:
       - '$ALICE_PUB'
-  - name: 'bob'
+  - name: bob
     keys:
       - '$BOB_PUB'
 EOF
 
-if ssh_jump bob "$BOB_KEY" "echo bob-ok" 2>/dev/null | grep -q "bob-ok"; then
+if ssh_jump bob id_bob "echo bob-ok" 2>/dev/null | grep -q "bob-ok"; then
   ok "bob can jump through gateway"
 else
   ng "bob jump through gateway failed"
 fi
 
-if ssh_jump alice "$ALICE_KEY" "echo alice-still-ok" 2>/dev/null | grep -q "alice-still-ok"; then
+if ssh_jump alice id_alice "echo alice-still-ok" 2>/dev/null | grep -q "alice-still-ok"; then
   ok "alice still works after adding bob"
 else
   ng "alice broken after adding bob"
@@ -133,32 +130,32 @@ fi
 # --- Test 3: Rotate alice's key ---
 run_test "Rotate alice's key"
 
-cp .test/keys/id_alice_new.pub .test/alice/.ssh/authorized_keys
+set_authorized_key alice id_alice_new.pub
 
 reload_gateway <<EOF
-project: 'test'
+project: test
 users:
-  - name: 'alice'
+  - name: alice
     keys:
       - '$ALICE_NEW_PUB'
-  - name: 'bob'
+  - name: bob
     keys:
       - '$BOB_PUB'
 EOF
 
-if ssh_jump alice "$ALICE_KEY" "echo should-fail" 2>/dev/null | grep -q "should-fail"; then
+if ssh_jump alice id_alice "echo should-fail" 2>/dev/null | grep -q "should-fail"; then
   ng "alice's old key should be rejected"
 else
   ok "alice's old key correctly rejected"
 fi
 
-if ssh_jump alice "$ALICE_NEW_KEY" "echo alice-new-ok" 2>/dev/null | grep -q "alice-new-ok"; then
+if ssh_jump alice id_alice_new "echo alice-new-ok" 2>/dev/null | grep -q "alice-new-ok"; then
   ok "alice's new key works"
 else
   ng "alice's new key failed"
 fi
 
-if ssh_jump bob "$BOB_KEY" "echo bob-still-ok" 2>/dev/null | grep -q "bob-still-ok"; then
+if ssh_jump bob id_bob "echo bob-still-ok" 2>/dev/null | grep -q "bob-still-ok"; then
   ok "bob unaffected by alice's key rotation"
 else
   ng "bob broken by alice's key rotation"
@@ -168,20 +165,20 @@ fi
 run_test "Remove alice"
 
 reload_gateway <<EOF
-project: 'test'
+project: test
 users:
-  - name: 'bob'
+  - name: bob
     keys:
       - '$BOB_PUB'
 EOF
 
-if ssh_jump alice "$ALICE_KEY" "echo should-fail" 2>/dev/null | grep -q "should-fail"; then
+if ssh_jump alice id_alice "echo should-fail" 2>/dev/null | grep -q "should-fail"; then
   ng "removed alice should be rejected"
 else
   ok "removed alice correctly rejected"
 fi
 
-if ssh_jump bob "$BOB_KEY" "echo bob-remaining-ok" 2>/dev/null | grep -q "bob-remaining-ok"; then
+if ssh_jump bob id_bob "echo bob-remaining-ok" 2>/dev/null | grep -q "bob-remaining-ok"; then
   ok "bob still works after removing alice"
 else
   ng "bob broken after removing alice"
@@ -190,19 +187,15 @@ fi
 # --- Test 5: Direct shell access denied ---
 run_test "Shell access denied (ForceCommand)"
 
-cat > "$SSH_CFG" <<EOF
-Host gateway
-  HostName localhost
-  Port $GATEWAY_PORT
-
+cat > "$SSH_CFG" <<SSHCFG
 Host *
   StrictHostKeyChecking no
   UserKnownHostsFile /dev/null
   LogLevel ERROR
-  IdentityFile $BOB_KEY
+  IdentityFile /keys/id_bob
   IdentitiesOnly yes
-EOF
-if ssh -F "$SSH_CFG" "bob@gateway" echo "shell-ok" 2>/dev/null | grep -q "shell-ok"; then
+SSHCFG
+if ssh -F "$SSH_CFG" bob@gateway echo "shell-ok" 2>/dev/null | grep -q "shell-ok"; then
   ng "direct shell access should be denied"
 else
   ok "direct shell access correctly denied"
