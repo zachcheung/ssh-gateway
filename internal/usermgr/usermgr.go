@@ -17,6 +17,7 @@ const (
 	groupFile    = "/etc/group"
 	defaultShell = "/bin/false"
 	homeBase     = "/home"
+	managedGroup = "ssh-gateway"
 )
 
 type Manager struct {
@@ -36,31 +37,43 @@ func New() *Manager {
 }
 
 func (m *Manager) ListUsers() (map[string]bool, error) {
-	f, err := os.Open(m.passwdPath)
+	members, err := m.groupMembers(managedGroup)
 	if err != nil {
-		return nil, fmt.Errorf("open passwd: %w", err)
+		return nil, err
+	}
+	users := make(map[string]bool, len(members))
+	for _, name := range members {
+		users[name] = true
+	}
+	return users, nil
+}
+
+func (m *Manager) groupMembers(group string) ([]string, error) {
+	f, err := os.Open(m.groupPath)
+	if err != nil {
+		return nil, fmt.Errorf("open group: %w", err)
 	}
 	defer f.Close()
 
-	users := make(map[string]bool)
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		fields := strings.SplitN(scanner.Text(), ":", 7)
-		if len(fields) < 3 {
+		fields := strings.SplitN(scanner.Text(), ":", 4)
+		if len(fields) < 4 || fields[0] != group {
 			continue
 		}
-		uid, err := strconv.Atoi(fields[2])
-		if err != nil {
-			continue
+		if fields[3] == "" {
+			return nil, nil
 		}
-		if uid >= minUID {
-			users[fields[0]] = true
-		}
+		return strings.Split(fields[3], ","), nil
 	}
-	return users, scanner.Err()
+	return nil, scanner.Err()
 }
 
 func (m *Manager) Reconcile(desired map[string][]string) error {
+	if err := m.ensureGroup(managedGroup); err != nil {
+		return fmt.Errorf("ensure group: %w", err)
+	}
+
 	current, err := m.ListUsers()
 	if err != nil {
 		return fmt.Errorf("list users: %w", err)
@@ -134,6 +147,9 @@ func (m *Manager) addUser(name string) error {
 	if err := m.appendLine(m.shadowPath, fmt.Sprintf("%s:!:::::::", name)); err != nil {
 		return fmt.Errorf("append shadow: %w", err)
 	}
+	if err := m.addGroupMember(managedGroup, name); err != nil {
+		return fmt.Errorf("add to managed group: %w", err)
+	}
 
 	home := filepath.Join(m.homeBase, name)
 	sshDir := filepath.Join(home, ".ssh")
@@ -151,6 +167,9 @@ func (m *Manager) addUser(name string) error {
 }
 
 func (m *Manager) removeUser(name string) error {
+	if err := m.removeGroupMember(managedGroup, name); err != nil {
+		return fmt.Errorf("remove from managed group: %w", err)
+	}
 	if err := m.removeLine(m.passwdPath, name+":"); err != nil {
 		return fmt.Errorf("remove from passwd: %w", err)
 	}
@@ -223,6 +242,68 @@ func (m *Manager) appendLine(path, line string) error {
 	defer f.Close()
 	_, err = fmt.Fprintln(f, line)
 	return err
+}
+
+func (m *Manager) ensureGroup(group string) error {
+	f, err := os.Open(m.groupPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.SplitN(scanner.Text(), ":", 4)
+		if len(fields) >= 1 && fields[0] == group {
+			return nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	return m.appendLine(m.groupPath, fmt.Sprintf("%s:x:%d:", group, minUID-1))
+}
+
+func (m *Manager) addGroupMember(group, user string) error {
+	return m.updateGroupMembers(group, func(members []string) []string {
+		return append(members, user)
+	})
+}
+
+func (m *Manager) removeGroupMember(group, user string) error {
+	return m.updateGroupMembers(group, func(members []string) []string {
+		var result []string
+		for _, m := range members {
+			if m != user {
+				result = append(result, m)
+			}
+		}
+		return result
+	})
+}
+
+func (m *Manager) updateGroupMembers(group string, fn func([]string) []string) error {
+	data, err := os.ReadFile(m.groupPath)
+	if err != nil {
+		return err
+	}
+
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.SplitN(line, ":", 4)
+		if len(fields) >= 4 && fields[0] == group {
+			var members []string
+			if fields[3] != "" {
+				members = strings.Split(fields[3], ",")
+			}
+			members = fn(members)
+			fields[3] = strings.Join(members, ",")
+			line = strings.Join(fields, ":")
+		}
+		lines = append(lines, line)
+	}
+
+	return os.WriteFile(m.groupPath, []byte(strings.Join(lines, "\n")), 0644)
 }
 
 func (m *Manager) removeLine(path, prefix string) error {
