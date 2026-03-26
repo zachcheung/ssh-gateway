@@ -1,0 +1,15 @@
+name: ssh-gateway-test
+
+services:
+  gateway:
+    build: .
+    ports:
+      - 2222:22
+    volumes:
+      - ./.test/gateway-config:/etc/ssh-gateway:ro,z
+
+  backend:
+    build: test
+    volumes:
+      - ./.test/alice/.ssh:/home/alice/.ssh:ro,z
+      - ./.test/bob/.ssh:/home/bob/.ssh:ro,z
