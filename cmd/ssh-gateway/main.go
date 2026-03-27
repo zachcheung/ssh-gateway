@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/zachcheung/ssh-gateway/internal/config"
@@ -15,6 +16,11 @@ const configPath = "/etc/ssh-gateway/config.yaml"
 
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime)
+
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil || !strings.Contains(string(data), "ID=alpine") {
+		log.Println("WARNING: not Alpine Linux, this tool is designed for containers only")
+	}
 
 	mgr := usermgr.New()
 
