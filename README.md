@@ -1,6 +1,6 @@
 # SSH Gateway
 
-A single host serving as SSH jump gateway for multiple projects, each with isolated users. One container per project, managed via YAML config.
+Poor man's SSH gateway for multiple projects.
 
 ```mermaid
 flowchart LR
@@ -83,6 +83,8 @@ Host alpha1
 ```
 
 ## How It Works
+
+A single host serves as SSH jump gateway for multiple projects, each with isolated users. One container per project, managed via YAML config.
 
 The Go binary manages sshd and system users inside the container. On startup and on `SIGHUP`, it reads the config and reconciles users and their `authorized_keys`. No shell access is granted (`ForceCommand /bin/false`). Host keys and home directories are persisted via Docker volumes.
 
