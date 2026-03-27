@@ -1,8 +1,10 @@
-.git
-.gitignore
+.git/
+.github/
+examples/
+test/
 .dockerignore
+.gitignore
 compose*.yml
-data
-test
-README.md
+Dockerfile
 LICENSE
+*.md
