@@ -3,7 +3,13 @@ name: test
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'examples/**'
   pull_request:
+    paths-ignore:
+      - '*.md'
+      - 'examples/**'
 
 jobs:
   integration:
