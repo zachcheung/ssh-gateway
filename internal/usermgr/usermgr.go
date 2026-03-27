@@ -85,18 +85,31 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 			if err := m.removeUser(name); err != nil {
 				return fmt.Errorf("remove user %q: %w", name, err)
 			}
+			log.Printf("removed user %q", name)
 		}
 	}
 
 	for name, keys := range desired {
-		if !current[name] {
+		var oldKeys []string
+		isNew := !current[name]
+		if isNew {
 			log.Printf("adding user %q", name)
 			if err := m.addUser(name); err != nil {
 				return fmt.Errorf("add user %q: %w", name, err)
 			}
+		} else {
+			oldKeys, _ = m.readAuthorizedKeys(name)
+		}
+		if len(keys) == 0 {
+			log.Printf("WARNING: user %q has no keys, access denied", name)
 		}
 		if err := m.writeAuthorizedKeys(name, keys); err != nil {
 			return fmt.Errorf("write keys for %q: %w", name, err)
+		}
+		if isNew {
+			log.Printf("added user %q (%d keys)", name, len(keys))
+		} else if !keysEqual(oldKeys, keys) {
+			log.Printf("updated keys for user %q (%d -> %d keys)", name, len(oldKeys), len(keys))
 		}
 	}
 
@@ -186,6 +199,33 @@ func (m *Manager) removeUser(name string) error {
 	}
 
 	return nil
+}
+
+func (m *Manager) readAuthorizedKeys(name string) ([]string, error) {
+	akPath := filepath.Join(m.homeBase, name, ".ssh", "authorized_keys")
+	data, err := os.ReadFile(akPath)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line != "" {
+			keys = append(keys, line)
+		}
+	}
+	return keys, nil
+}
+
+func keysEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) writeAuthorizedKeys(name string, keys []string) error {

@@ -119,6 +119,18 @@ func (c *Config) validate() error {
 	return nil
 }
 
+func uniqueKeys(keys []string) []string {
+	seen := make(map[string]bool, len(keys))
+	var result []string
+	for _, k := range keys {
+		if !seen[k] {
+			seen[k] = true
+			result = append(result, k)
+		}
+	}
+	return result
+}
+
 func (c *Config) filterKeys(keys []string) []string {
 	if len(c.KeyTypes.Allowed) == 0 && len(c.KeyTypes.Disallowed) == 0 {
 		return keys
@@ -189,6 +201,7 @@ func (c *Config) ResolveKeys() (map[string][]string, error) {
 		}
 
 		keys = c.filterKeys(keys)
+		keys = uniqueKeys(keys)
 		if len(keys) == 0 {
 			log.Printf("WARNING: user %q: all keys filtered by key_types", u.Name)
 		}
