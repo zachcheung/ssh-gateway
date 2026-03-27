@@ -4,13 +4,17 @@ services:
     restart: unless-stopped
     ports:
       - '2201:22'
+    environment:
+      - SSH_GATEWAY_PROJECT=alpha
     volumes:
-      - ./alpha/config.yaml:/etc/ssh-gateway/config.yaml:ro
+      - .:/etc/ssh-gateway:ro
 
   ssh-gw-beta:
     image: ghcr.io/zachcheung/ssh-gateway
     restart: unless-stopped
     ports:
       - '2202:22'
+    environment:
+      - SSH_GATEWAY_PROJECT=beta
     volumes:
-      - ./beta/config.yaml:/etc/ssh-gateway/config.yaml:ro
+      - .:/etc/ssh-gateway:ro

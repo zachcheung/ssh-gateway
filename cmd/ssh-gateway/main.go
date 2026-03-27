@@ -12,7 +12,14 @@ import (
 	"github.com/zachcheung/ssh-gateway/internal/usermgr"
 )
 
-const configPath = "/etc/ssh-gateway/config.yaml"
+const configDir = "/etc/ssh-gateway"
+
+func configPath() string {
+	if p := os.Getenv("SSH_GATEWAY_PROJECT"); p != "" {
+		return configDir + "/" + p + "/config.yaml"
+	}
+	return configDir + "/config.yaml"
+}
 
 func main() {
 	log.SetFlags(log.Ldate | log.Ltime)
@@ -75,7 +82,7 @@ func main() {
 }
 
 func reconcile(mgr *usermgr.Manager) error {
-	cfg, err := config.Load(configPath)
+	cfg, err := config.Load(configPath())
 	if err != nil {
 		return err
 	}
