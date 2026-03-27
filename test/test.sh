@@ -345,6 +345,40 @@ else
   ng "alice failed (allowed should win over disallowed)"
 fi
 
+# --- Test 11: all keys filtered (empty keys warning) ---
+run_test "All keys filtered (user gets no keys)"
+
+reload_gateway <<EOF
+project: test
+key_types:
+  allowed: [ed25519]
+users:
+  - name: alice
+    keys:
+      - '$ALICE_RSA_PUB'
+  - name: bob
+    keys:
+      - '$BOB_PUB'
+EOF
+
+if ssh_jump alice id_alice_rsa "echo empty-alice" 2>/dev/null | grep -q "empty-alice"; then
+  ng "alice should be rejected (all keys filtered)"
+else
+  ok "alice correctly rejected (all keys filtered)"
+fi
+
+if ssh_jump alice id_alice "echo empty-alice-ed" 2>/dev/null | grep -q "empty-alice-ed"; then
+  ng "alice ed25519 should also be rejected (not in config)"
+else
+  ok "alice ed25519 also rejected (not in config, only rsa was listed)"
+fi
+
+if ssh_jump bob id_bob "echo empty-bob-ok" 2>/dev/null | grep -q "empty-bob-ok"; then
+  ok "bob unaffected"
+else
+  ng "bob should still work"
+fi
+
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
