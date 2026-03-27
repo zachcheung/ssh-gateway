@@ -15,5 +15,8 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - run: docker compose -f compose.test.yml up --build --abort-on-container-exit
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run integration tests
+        run: docker compose -f compose.test.yml up --build --abort-on-container-exit
