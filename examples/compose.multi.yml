@@ -1,0 +1,16 @@
+services:
+  ssh-gw-alpha:
+    image: ghcr.io/zachcheung/ssh-gateway
+    restart: unless-stopped
+    ports:
+      - '2201:22'
+    volumes:
+      - ./alpha/config.yaml:/etc/ssh-gateway/config.yaml:ro
+
+  ssh-gw-beta:
+    image: ghcr.io/zachcheung/ssh-gateway
+    restart: unless-stopped
+    ports:
+      - '2202:22'
+    volumes:
+      - ./beta/config.yaml:/etc/ssh-gateway/config.yaml:ro

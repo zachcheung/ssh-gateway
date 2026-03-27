@@ -1,0 +1,10 @@
+services:
+  ssh-gateway:
+    image: ghcr.io/zachcheung/ssh-gateway
+    restart: unless-stopped
+    ports:
+      - '2201:22'
+    volumes:
+      - ./config.yaml:/etc/ssh-gateway/config.yaml:ro
+      - ./ssh:/etc/ssh
+      - ./home:/home
