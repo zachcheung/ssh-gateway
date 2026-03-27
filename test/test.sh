@@ -73,6 +73,9 @@ ALICE_PUB=$(cat /keys/id_alice.pub)
 ALICE_NEW_PUB=$(cat /keys/id_alice_new.pub)
 BOB_PUB=$(cat /keys/id_bob.pub)
 
+docker cp /keys/id_alice.pub "$(container_id keyserver)":/usr/share/nginx/html/alice.keys
+docker cp /keys/id_bob.pub "$(container_id keyserver)":/usr/share/nginx/html/bob.keys
+
 set_authorized_key alice id_alice.pub
 set_authorized_key bob id_bob.pub
 
@@ -199,6 +202,57 @@ if ssh -F "$SSH_CFG" bob@gateway echo "shell-ok" 2>/dev/null | grep -q "shell-ok
   ng "direct shell access should be denied"
 else
   ok "direct shell access correctly denied"
+fi
+
+# --- Test 6: URL key provider ---
+run_test "URL key provider"
+
+set_authorized_key alice id_alice.pub
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+users:
+  - name: alice
+  - name: bob
+EOF
+
+if ssh_jump alice id_alice "echo url-alice-ok" 2>/dev/null | grep -q "url-alice-ok"; then
+  ok "alice via key_provider works"
+else
+  ng "alice via key_provider failed"
+fi
+
+if ssh_jump bob id_bob "echo url-bob-ok" 2>/dev/null | grep -q "url-bob-ok"; then
+  ok "bob via key_provider works"
+else
+  ng "bob via key_provider failed"
+fi
+
+# --- Test 7: Mixed inline + URL keys ---
+run_test "Mixed inline and URL keys"
+
+reload_gateway <<EOF
+project: test
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+  - name: bob
+    keys:
+      - http://keyserver/bob.keys
+EOF
+
+if ssh_jump alice id_alice "echo mixed-alice-ok" 2>/dev/null | grep -q "mixed-alice-ok"; then
+  ok "alice with inline key works"
+else
+  ng "alice with inline key failed"
+fi
+
+if ssh_jump bob id_bob "echo mixed-bob-ok" 2>/dev/null | grep -q "mixed-bob-ok"; then
+  ok "bob with URL key works"
+else
+  ng "bob with URL key failed"
 fi
 
 # --- Summary ---

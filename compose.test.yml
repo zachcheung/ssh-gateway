@@ -13,6 +13,9 @@ services:
     volumes:
       - keys:/keys:ro
 
+  keyserver:
+    image: nginx:alpine
+
   test:
     build:
       context: test
@@ -20,6 +23,7 @@ services:
     depends_on:
       - gateway
       - dst
+      - keyserver
     volumes:
       - keys:/keys
       - config:/config

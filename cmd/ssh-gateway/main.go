@@ -81,7 +81,12 @@ func reconcile(mgr *usermgr.Manager) error {
 	}
 
 	log.Printf("reconciling project %q (%d users)", cfg.Project, len(cfg.Users))
-	return mgr.Reconcile(cfg.UserMap())
+
+	keys, err := cfg.ResolveKeys()
+	if err != nil {
+		return err
+	}
+	return mgr.Reconcile(keys)
 }
 
 func reapChildren() {

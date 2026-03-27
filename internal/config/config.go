@@ -5,8 +5,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/zachcheung/ssh-gateway/internal/keyfetch"
 	"go.yaml.in/yaml/v4"
 )
+
+var providerShorthands = map[string]string{
+	"github": "https://github.com",
+	"gitlab": "https://gitlab.com",
+}
 
 type User struct {
 	Name string   `yaml:"name"`
@@ -14,8 +20,9 @@ type User struct {
 }
 
 type Config struct {
-	Project string `yaml:"project"`
-	Users   []User `yaml:"users"`
+	Project     string `yaml:"project"`
+	KeyProvider string `yaml:"key_provider"`
+	Users       []User `yaml:"users"`
 }
 
 func Load(path string) (*Config, error) {
@@ -36,6 +43,13 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func (c *Config) ProviderURL() string {
+	if url, ok := providerShorthands[c.KeyProvider]; ok {
+		return url
+	}
+	return c.KeyProvider
+}
+
 func (c *Config) validate() error {
 	if c.Project == "" {
 		return fmt.Errorf("project name is required")
@@ -51,8 +65,8 @@ func (c *Config) validate() error {
 		}
 		seen[u.Name] = true
 
-		if len(u.Keys) == 0 {
-			return fmt.Errorf("user %q: at least one key is required", u.Name)
+		if len(u.Keys) == 0 && c.KeyProvider == "" {
+			return fmt.Errorf("user %q: keys required (or set key_provider)", u.Name)
 		}
 		for j, k := range u.Keys {
 			k = strings.TrimSpace(k)
@@ -65,10 +79,37 @@ func (c *Config) validate() error {
 	return nil
 }
 
-func (c *Config) UserMap() map[string][]string {
+func (c *Config) ResolveKeys() (map[string][]string, error) {
+	provider := c.ProviderURL()
 	m := make(map[string][]string, len(c.Users))
+
 	for _, u := range c.Users {
-		m[u.Name] = u.Keys
+		var keys []string
+
+		if len(u.Keys) == 0 {
+			url := provider + "/" + u.Name + ".keys"
+			fetched, err := keyfetch.Fetch(url)
+			if err != nil {
+				return nil, fmt.Errorf("user %q: %w", u.Name, err)
+			}
+			keys = fetched
+		} else {
+			for _, k := range u.Keys {
+				k = strings.TrimSpace(k)
+				if keyfetch.IsURL(k) {
+					fetched, err := keyfetch.Fetch(k)
+					if err != nil {
+						return nil, fmt.Errorf("user %q: %w", u.Name, err)
+					}
+					keys = append(keys, fetched...)
+				} else {
+					keys = append(keys, k)
+				}
+			}
+		}
+
+		m[u.Name] = keys
 	}
-	return m
+
+	return m, nil
 }
