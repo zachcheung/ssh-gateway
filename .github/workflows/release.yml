@@ -14,13 +14,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/login-action@v3
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/metadata-action@v5
+      - name: Extract metadata
+        uses: docker/metadata-action@v5
         id: meta
         with:
           images: ghcr.io/${{ github.repository }}
@@ -30,7 +32,8 @@ jobs:
             type=semver,pattern={{major}}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v6
+      - name: Build and push image
+        uses: docker/build-push-action@v6
         with:
           context: .
           platform: linux/amd64,linux/arm64
