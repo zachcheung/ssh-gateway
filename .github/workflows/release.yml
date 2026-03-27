@@ -9,6 +9,7 @@ jobs:
   image:
     runs-on: ubuntu-latest
     permissions:
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v4
@@ -36,3 +37,22 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          if [ -f "RELEASE_NOTES.md" ]; then
+            NOTES=$(sed -n "/## $TAG_NAME/,/## v[0-9]/p" RELEASE_NOTES.md | sed '$d' | tail -n +2)
+
+            if [ -n "$NOTES" ]; then
+              echo "$NOTES" > temp_notes.md
+              gh release create "$TAG_NAME" --title "Release $TAG_NAME" --notes-file temp_notes.md
+              rm temp_notes.md
+            else
+              gh release create "$TAG_NAME" --title "Release $TAG_NAME" --generate-notes
+            fi
+          else
+            gh release create "$TAG_NAME" --title "Release $TAG_NAME" --generate-notes
+          fi
