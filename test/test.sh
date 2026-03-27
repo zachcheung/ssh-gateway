@@ -67,14 +67,18 @@ rm -f /keys/* /config/*
 printf "Generating keys...\n"
 ssh-keygen -t ed25519 -f /keys/id_alice -N '' -C alice@laptop > /dev/null 2>&1
 ssh-keygen -t ed25519 -f /keys/id_alice_new -N '' -C alice@new-laptop > /dev/null 2>&1
+ssh-keygen -t rsa -b 2048 -f /keys/id_alice_rsa -N '' -C alice@rsa > /dev/null 2>&1
 ssh-keygen -t ed25519 -f /keys/id_bob -N '' -C bob@desktop > /dev/null 2>&1
 
 ALICE_PUB=$(cat /keys/id_alice.pub)
 ALICE_NEW_PUB=$(cat /keys/id_alice_new.pub)
+ALICE_RSA_PUB=$(cat /keys/id_alice_rsa.pub)
 BOB_PUB=$(cat /keys/id_bob.pub)
 
-docker cp /keys/id_alice.pub "$(container_id keyserver)":/usr/share/nginx/html/alice.keys
-docker cp /keys/id_bob.pub "$(container_id keyserver)":/usr/share/nginx/html/bob.keys
+KEYSERVER_HTML=/usr/share/nginx/html
+cat /keys/id_alice.pub /keys/id_alice_rsa.pub > /tmp/alice.keys
+docker cp /tmp/alice.keys "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+docker cp /keys/id_bob.pub "$(container_id keyserver)":$KEYSERVER_HTML/bob.keys
 
 set_authorized_key alice id_alice.pub
 set_authorized_key bob id_bob.pub
@@ -253,6 +257,92 @@ if ssh_jump bob id_bob "echo mixed-bob-ok" 2>/dev/null | grep -q "mixed-bob-ok";
   ok "bob with URL key works"
 else
   ng "bob with URL key failed"
+fi
+
+# --- Test 8: key_types allowed ---
+run_test "key_types allowed (ed25519)"
+
+reload_gateway <<EOF
+project: test
+key_types:
+  allowed: [ed25519]
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+  - name: bob
+    keys:
+      - '$BOB_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo allowed-alice-ok" 2>/dev/null | grep -q "allowed-alice-ok"; then
+  ok "alice allowed with ed25519"
+else
+  ng "alice allowed with ed25519 failed"
+fi
+
+if ssh_jump bob id_bob "echo allowed-bob-ok" 2>/dev/null | grep -q "allowed-bob-ok"; then
+  ok "bob allowed with ed25519"
+else
+  ng "bob allowed with ed25519 failed"
+fi
+
+# --- Test 9: key_types disallowed (rsa filtered, ed25519 kept) ---
+run_test "key_types disallowed (rsa)"
+
+reload_gateway <<EOF
+project: test
+key_types:
+  disallowed: [rsa]
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+      - '$ALICE_RSA_PUB'
+  - name: bob
+    keys:
+      - '$BOB_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo disallow-rsa-alice-ok" 2>/dev/null | grep -q "disallow-rsa-alice-ok"; then
+  ok "alice ed25519 key kept (rsa filtered)"
+else
+  ng "alice ed25519 key should still work (rsa filtered)"
+fi
+
+if ssh_jump alice id_alice_rsa "echo disallow-rsa-alice-rsa" 2>/dev/null | grep -q "disallow-rsa-alice-rsa"; then
+  ng "alice rsa key should be rejected"
+else
+  ok "alice rsa key correctly rejected"
+fi
+
+if ssh_jump bob id_bob "echo disallow-rsa-bob-ok" 2>/dev/null | grep -q "disallow-rsa-bob-ok"; then
+  ok "bob unaffected (ed25519 only)"
+else
+  ng "bob should be unaffected"
+fi
+
+# --- Test 10: both allowed + disallowed (allowed wins) ---
+run_test "key_types both allowed+disallowed (allowed wins)"
+
+reload_gateway <<EOF
+project: test
+key_types:
+  allowed: [ed25519]
+  disallowed: [ed25519]
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+  - name: bob
+    keys:
+      - '$BOB_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo both-alice-ok" 2>/dev/null | grep -q "both-alice-ok"; then
+  ok "alice works (allowed wins over disallowed)"
+else
+  ng "alice failed (allowed should win over disallowed)"
 fi
 
 # --- Summary ---

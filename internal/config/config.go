@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -14,15 +15,39 @@ var providerShorthands = map[string]string{
 	"gitlab": "https://gitlab.com",
 }
 
+var validKeyTypes = map[string]bool{
+	"ecdsa":      true,
+	"ecdsa-sk":   true,
+	"ed25519":    true,
+	"ed25519-sk": true,
+	"rsa":        true,
+}
+
+var sshPrefixToType = map[string]string{
+	"ecdsa-sha2-nistp256":                 "ecdsa",
+	"ecdsa-sha2-nistp384":                 "ecdsa",
+	"ecdsa-sha2-nistp521":                 "ecdsa",
+	"sk-ecdsa-sha2-nistp256@openssh.com":  "ecdsa-sk",
+	"ssh-ed25519":                         "ed25519",
+	"sk-ssh-ed25519@openssh.com":          "ed25519-sk",
+	"ssh-rsa":                             "rsa",
+}
+
+type KeyTypes struct {
+	Allowed    []string `yaml:"allowed"`
+	Disallowed []string `yaml:"disallowed"`
+}
+
 type User struct {
 	Name string   `yaml:"name"`
 	Keys []string `yaml:"keys"`
 }
 
 type Config struct {
-	Project     string `yaml:"project"`
-	KeyProvider string `yaml:"key_provider"`
-	Users       []User `yaml:"users"`
+	Project     string   `yaml:"project"`
+	KeyProvider string   `yaml:"key_provider"`
+	KeyTypes    KeyTypes `yaml:"key_types"`
+	Users       []User   `yaml:"users"`
 }
 
 func Load(path string) (*Config, error) {
@@ -55,6 +80,21 @@ func (c *Config) validate() error {
 		return fmt.Errorf("project name is required")
 	}
 
+	for _, t := range c.KeyTypes.Allowed {
+		if !validKeyTypes[t] {
+			return fmt.Errorf("key_types.allowed: unknown type %q", t)
+		}
+	}
+	for _, t := range c.KeyTypes.Disallowed {
+		if !validKeyTypes[t] {
+			return fmt.Errorf("key_types.disallowed: unknown type %q", t)
+		}
+	}
+	if len(c.KeyTypes.Allowed) > 0 && len(c.KeyTypes.Disallowed) > 0 {
+		log.Println("WARNING: both key_types.allowed and key_types.disallowed set, using allowed only")
+		c.KeyTypes.Disallowed = nil
+	}
+
 	seen := make(map[string]bool)
 	for i, u := range c.Users {
 		if u.Name == "" {
@@ -77,6 +117,46 @@ func (c *Config) validate() error {
 	}
 
 	return nil
+}
+
+func (c *Config) filterKeys(keys []string) []string {
+	if len(c.KeyTypes.Allowed) == 0 && len(c.KeyTypes.Disallowed) == 0 {
+		return keys
+	}
+
+	var allowed map[string]bool
+	if len(c.KeyTypes.Allowed) > 0 {
+		allowed = make(map[string]bool, len(c.KeyTypes.Allowed))
+		for _, t := range c.KeyTypes.Allowed {
+			allowed[t] = true
+		}
+	}
+
+	var disallowed map[string]bool
+	if len(c.KeyTypes.Disallowed) > 0 {
+		disallowed = make(map[string]bool, len(c.KeyTypes.Disallowed))
+		for _, t := range c.KeyTypes.Disallowed {
+			disallowed[t] = true
+		}
+	}
+
+	var filtered []string
+	for _, k := range keys {
+		prefix := strings.SplitN(k, " ", 2)[0]
+		kt, ok := sshPrefixToType[prefix]
+		if !ok {
+			filtered = append(filtered, k)
+			continue
+		}
+		if allowed != nil && !allowed[kt] {
+			continue
+		}
+		if disallowed != nil && disallowed[kt] {
+			continue
+		}
+		filtered = append(filtered, k)
+	}
+	return filtered
 }
 
 func (c *Config) ResolveKeys() (map[string][]string, error) {
@@ -106,6 +186,11 @@ func (c *Config) ResolveKeys() (map[string][]string, error) {
 					keys = append(keys, k)
 				}
 			}
+		}
+
+		keys = c.filterKeys(keys)
+		if len(keys) == 0 {
+			log.Printf("WARNING: user %q: all keys filtered by key_types", u.Name)
 		}
 
 		m[u.Name] = keys
