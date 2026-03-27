@@ -1,5 +1,10 @@
 # Release Notes
 
+## v0.1.1
+
+- Fix multi-arch image build with QEMU and Buildx setup
+- Skip major-only image tag for v0.x releases
+
 ## v0.1.0
 
 Initial release.
