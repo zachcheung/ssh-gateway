@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  schedule:
+    - cron: '0 0 * * 0'  # every Sunday at midnight UTC
 
 jobs:
   image:
@@ -14,6 +16,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          fetch-tags: true
+
+      - name: Checkout latest tag
+        if: github.event_name == 'schedule'
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          git checkout $LATEST_TAG
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -49,6 +59,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       - name: Create GitHub Release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
