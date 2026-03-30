@@ -379,6 +379,28 @@ else
   ng "bob should still work"
 fi
 
+# --- Test 12: Invalid config (gateway keeps old config) ---
+run_test "Invalid config reload (gateway keeps old config)"
+
+reload_gateway <<EOF
+users:
+  - name: bob
+    keys:
+      - '$BOB_PUB'
+EOF
+
+if ssh_jump bob id_bob "echo invalid-cfg-bob-ok" 2>/dev/null | grep -q "invalid-cfg-bob-ok"; then
+  ok "bob still works after invalid config reload (old config kept)"
+else
+  ng "bob should still work (gateway should keep old config on error)"
+fi
+
+if ssh_jump alice id_alice "echo invalid-cfg-alice" 2>/dev/null | grep -q "invalid-cfg-alice"; then
+  ng "alice should still be rejected (old config kept)"
+else
+  ok "alice still rejected after invalid config reload (old config kept)"
+fi
+
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
