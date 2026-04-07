@@ -67,6 +67,9 @@ jobs:
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.sshd-version=${{ steps.sshd.outputs.version }}
+          annotations: |
+            ${{ steps.meta.outputs.annotations }}
+            org.opencontainers.image.sshd-version=${{ steps.sshd.outputs.version }}
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
