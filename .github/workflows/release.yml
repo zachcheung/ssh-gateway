@@ -22,7 +22,7 @@ jobs:
       - name: Checkout latest tag
         if: github.event_name == 'schedule'
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0)
+          LATEST_TAG=$(git tag --sort=-version:refname | head -n1)
           git checkout $LATEST_TAG
 
       - name: Set up QEMU
