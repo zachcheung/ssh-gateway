@@ -39,6 +39,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Get sshd version
+        id: sshd
+        run: |
+          VERSION=$(docker run --rm alpine:latest sh -c \
+            'apk add --no-cache openssh-server -q 2>/dev/null && sshd -V 2>&1')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Extract metadata
         uses: docker/metadata-action@v6
         id: meta
@@ -57,7 +64,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.sshd-version=${{ steps.sshd.outputs.version }}
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
