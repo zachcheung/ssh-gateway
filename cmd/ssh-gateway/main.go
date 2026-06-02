@@ -41,6 +41,14 @@ func main() {
 
 	mgr := usermgr.New()
 
+	// Ensure the ssh-gateway group exists before sshd starts.
+	// AllowGroups ssh-gateway requires the group to be present at startup
+	// even if the initial reconcile fails (e.g. config not yet mounted).
+	if err := mgr.EnsureGroup(); err != nil {
+		slog.Error("ensure group", "err", err)
+		os.Exit(1)
+	}
+
 	// Initial reconcile must complete before sshd starts.
 	var initialInterval time.Duration
 	if cfg, err := reconcile(mgr); err != nil {

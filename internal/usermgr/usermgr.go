@@ -36,6 +36,10 @@ func New() *Manager {
 	}
 }
 
+func (m *Manager) EnsureGroup() error {
+	return m.ensureGroup(managedGroup)
+}
+
 func (m *Manager) ListUsers() (map[string]bool, error) {
 	members, err := m.groupMembers(managedGroup)
 	if err != nil {
