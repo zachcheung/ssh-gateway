@@ -57,6 +57,24 @@ docker compose up -d
 
 See [examples/](examples/) for multi-project and bind mount setups.
 
+### Migrating existing host keys
+
+Host keys are generated once on first start and reused on subsequent starts via the `/etc/ssh` volume. To migrate keys from an existing server, place them in the volume directory **before** starting the container — `GenerateHostKeys` skips generation if the files already exist:
+
+```sh
+cp /old-server/etc/ssh/ssh_host_*_key* ./ssh/
+docker compose up -d
+```
+
+If the container is already running with auto-generated keys, copy the files then restart:
+
+```sh
+cp /old-server/etc/ssh/ssh_host_*_key* ./ssh/
+docker compose restart ssh-gateway
+```
+
+Restarting is required because sshd loads host keys at startup and does not reload them at runtime.
+
 ## Reload
 
 Config changes are detected automatically via filesystem watch — no manual step needed when the config file is bind-mounted from the host or updated via Docker volumes.
