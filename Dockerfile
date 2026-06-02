@@ -22,6 +22,7 @@ X11Forwarding no
 AllowAgentForwarding yes
 ForceCommand /bin/false
 PrintMotd no
+PerSourcePenalties no
 EOF
 
 COPY --from=builder /ssh-gateway /usr/local/bin/ssh-gateway

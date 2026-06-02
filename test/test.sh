@@ -54,6 +54,13 @@ reload_gateway() {
   sleep 1
 }
 
+# Write config without SIGHUP — relies on fsnotify to trigger reconcile.
+write_config() {
+  cat > /config/config.yaml
+  printf "  wrote config, waiting for fsnotify...\n"
+  sleep 2
+}
+
 set_authorized_key() {
   user=$1 pubkey=$2
   docker exec "$(container_id dst)" sh -c "
@@ -399,6 +406,66 @@ if ssh_jump alice id_alice "echo invalid-cfg-alice" 2>/dev/null | grep -q "inval
   ng "alice should still be rejected (old config kept)"
 else
   ok "alice still rejected after invalid config reload (old config kept)"
+fi
+
+# --- Test 13: fsnotify auto-reload (no SIGHUP) ---
+run_test "fsnotify auto-reload (no SIGHUP)"
+
+set_authorized_key alice id_alice.pub
+
+write_config <<EOF
+project: test
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo fsnotify-ok" 2>/dev/null | grep -q "fsnotify-ok"; then
+  ok "config reload triggered by fsnotify without SIGHUP"
+else
+  ng "fsnotify reload failed"
+fi
+
+# --- Test 14: reconcile_interval periodic key refresh ---
+run_test "reconcile_interval periodic key refresh"
+
+# Start with alice's original key served by keyserver.
+docker cp /keys/id_alice.pub "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+set_authorized_key alice id_alice.pub
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+reconcile_interval: 10s
+users:
+  - name: alice
+EOF
+
+# Verify alice's original key works initially.
+if ssh_jump alice id_alice "echo periodic-initial-ok" 2>/dev/null | grep -q "periodic-initial-ok"; then
+  ok "alice original key works before key rotation"
+else
+  ng "alice original key should work before rotation"
+fi
+
+# Rotate: update keyserver and dst to new key, wait for periodic reconcile to pick it up.
+printf "  rotating alice key on keyserver, waiting for periodic reconcile...\n"
+docker cp /keys/id_alice_new.pub "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+set_authorized_key alice id_alice_new.pub
+sleep 12
+
+# After periodic reconcile alice's new key should work; old key should be rejected.
+if ssh_jump alice id_alice_new "echo periodic-new-ok" 2>/dev/null | grep -q "periodic-new-ok"; then
+  ok "alice new key works after periodic reconcile"
+else
+  ng "alice new key should work after periodic reconcile"
+fi
+
+if ssh_jump alice id_alice "echo periodic-old" 2>/dev/null | grep -q "periodic-old"; then
+  ng "alice old key should be rejected after periodic reconcile"
+else
+  ok "alice old key correctly rejected after periodic reconcile"
 fi
 
 # --- Summary ---

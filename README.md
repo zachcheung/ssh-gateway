@@ -22,6 +22,7 @@ project: alpha
 key_provider: github
 key_types:
   allowed: [ed25519]
+reconcile_interval: 15m
 users:
   - name: alice
     keys:
@@ -29,9 +30,12 @@ users:
   - name: bob
 ```
 
-Users without explicit `keys` are fetched from `key_provider` (e.g. `https://github.com/bob.keys`). Supported shorthands: `github`, `gitlab`, or a full URL.
-
-`key_types` filters keys by type (`ecdsa`, `ecdsa-sk`, `ed25519`, `ed25519-sk`, `rsa`). Use `allowed` or `disallowed` (if both are set, `allowed` wins).
+| Field | Description |
+|-------|-------------|
+| `project` | Project name (required) |
+| `key_provider` | Default key source for users without explicit `keys`. Shorthands: `github`, `gitlab`, or a full URL base (e.g. `https://keys.example.com`). Keys are fetched from `<base>/<username>.keys`. |
+| `key_types` | Filter keys by type (`ecdsa`, `ecdsa-sk`, `ed25519`, `ed25519-sk`, `rsa`). Use `allowed` or `disallowed`; if both are set, `allowed` wins. |
+| `reconcile_interval` | Periodically re-fetch keys from `key_provider` or URL keys, without any config file change. Useful when team members rotate their GitHub/GitLab keys. Minimum `5s`. Omit to disable. |
 
 ## Run
 
@@ -55,7 +59,9 @@ See [examples/](examples/) for multi-project and bind mount setups.
 
 ## Reload
 
-After editing the config, send `SIGHUP` to reload without restarting:
+Config changes are detected automatically via filesystem watch — no manual step needed when the config file is bind-mounted from the host or updated via Docker volumes.
+
+To trigger a reload manually (e.g. from a script):
 
 ```sh
 docker compose kill -s HUP ssh-gateway
@@ -86,7 +92,7 @@ Host alpha1
 
 A single host serves as SSH jump gateway for multiple projects, each with isolated users. One container per project, managed via YAML config.
 
-The Go binary manages sshd and system users inside the container. On startup and on `SIGHUP`, it reads the config and reconciles users and their `authorized_keys`. No shell access is granted (`ForceCommand /bin/false`). Host keys and home directories are persisted via Docker volumes.
+The Go binary manages sshd and system users inside the container. It reconciles users and their `authorized_keys` on three triggers: startup, config file change (via inotify watch on the config directory), and `SIGHUP`. If `reconcile_interval` is set, keys are also re-fetched on a timer to pick up external key rotations without any config change. No shell access is granted (`ForceCommand /bin/false`). Host keys and home directories are persisted via Docker volumes.
 
 ## Development
 

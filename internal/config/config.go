@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/zachcheung/ssh-gateway/internal/keyfetch"
 	"go.yaml.in/yaml/v4"
@@ -44,10 +45,21 @@ type User struct {
 }
 
 type Config struct {
-	Project     string   `yaml:"project"`
-	KeyProvider string   `yaml:"key_provider"`
-	KeyTypes    KeyTypes `yaml:"key_types"`
-	Users       []User   `yaml:"users"`
+	Project           string   `yaml:"project"`
+	KeyProvider       string   `yaml:"key_provider"`
+	KeyTypes          KeyTypes `yaml:"key_types"`
+	ReconcileInterval string   `yaml:"reconcile_interval"`
+	Users             []User   `yaml:"users"`
+}
+
+// GetReconcileInterval returns the parsed interval, or 0 if not set.
+// The value is already validated by Load, so parsing cannot fail here.
+func (c *Config) GetReconcileInterval() time.Duration {
+	if c.ReconcileInterval == "" {
+		return 0
+	}
+	d, _ := time.ParseDuration(c.ReconcileInterval)
+	return d
 }
 
 func Load(path string) (*Config, error) {
@@ -93,6 +105,16 @@ func (c *Config) validate() error {
 	if len(c.KeyTypes.Allowed) > 0 && len(c.KeyTypes.Disallowed) > 0 {
 		log.Println("WARNING: both key_types.allowed and key_types.disallowed set, using allowed only")
 		c.KeyTypes.Disallowed = nil
+	}
+
+	if c.ReconcileInterval != "" {
+		d, err := time.ParseDuration(c.ReconcileInterval)
+		if err != nil {
+			return fmt.Errorf("reconcile_interval: %w", err)
+		}
+		if d < 5*time.Second {
+			return fmt.Errorf("reconcile_interval: minimum is 5s, got %s", c.ReconcileInterval)
+		}
 	}
 
 	seen := make(map[string]bool)
