@@ -1,0 +1,25 @@
+name: keepalive
+
+on:
+  schedule:
+    - cron: '0 0 1 * *'  # 1st of every month
+  workflow_dispatch:
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Reset inactivity timer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b github-actions-keepalive-timer || git checkout github-actions-keepalive-timer
+          git commit --allow-empty -m "chore: reset 60-day inactivity timer [skip ci]"
+          git push origin github-actions-keepalive-timer --force
