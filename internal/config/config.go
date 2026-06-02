@@ -2,7 +2,7 @@ package config
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -103,7 +103,7 @@ func (c *Config) validate() error {
 		}
 	}
 	if len(c.KeyTypes.Allowed) > 0 && len(c.KeyTypes.Disallowed) > 0 {
-		log.Println("WARNING: both key_types.allowed and key_types.disallowed set, using allowed only")
+		slog.Warn("both key_types.allowed and key_types.disallowed set, using allowed only")
 		c.KeyTypes.Disallowed = nil
 	}
 
@@ -225,7 +225,7 @@ func (c *Config) ResolveKeys() (map[string][]string, error) {
 		keys = c.filterKeys(keys)
 		keys = uniqueKeys(keys)
 		if len(keys) == 0 {
-			log.Printf("WARNING: user %q: all keys filtered by key_types", u.Name)
+			slog.Warn("all keys filtered by key_types", "user", u.Name)
 		}
 
 		m[u.Name] = keys

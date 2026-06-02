@@ -3,7 +3,7 @@ package usermgr
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -81,11 +81,11 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 
 	for name := range current {
 		if _, ok := desired[name]; !ok {
-			log.Printf("removing user %q", name)
+			slog.Debug("removing user", "user", name)
 			if err := m.removeUser(name); err != nil {
 				return fmt.Errorf("remove user %q: %w", name, err)
 			}
-			log.Printf("removed user %q", name)
+			slog.Info("removed user", "user", name)
 		}
 	}
 
@@ -93,7 +93,7 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 		var oldKeys []string
 		isNew := !current[name]
 		if isNew {
-			log.Printf("adding user %q", name)
+			slog.Debug("adding user", "user", name)
 			if err := m.addUser(name); err != nil {
 				return fmt.Errorf("add user %q: %w", name, err)
 			}
@@ -101,15 +101,15 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 			oldKeys, _ = m.readAuthorizedKeys(name)
 		}
 		if len(keys) == 0 {
-			log.Printf("WARNING: user %q has no keys, access denied", name)
+			slog.Warn("user has no keys, access denied", "user", name)
 		}
 		if err := m.writeAuthorizedKeys(name, keys); err != nil {
 			return fmt.Errorf("write keys for %q: %w", name, err)
 		}
 		if isNew {
-			log.Printf("added user %q (%d keys)", name, len(keys))
+			slog.Info("added user", "user", name, "keys", len(keys))
 		} else if !keysEqual(oldKeys, keys) {
-			log.Printf("updated keys for user %q (%d -> %d keys)", name, len(oldKeys), len(keys))
+			slog.Info("updated keys", "user", name, "old", len(oldKeys), "new", len(keys))
 		}
 	}
 

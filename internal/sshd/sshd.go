@@ -2,7 +2,7 @@ package sshd
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"syscall"
@@ -24,7 +24,7 @@ func GenerateHostKeys() error {
 		if _, err := os.Stat(keyPath); err == nil {
 			continue
 		}
-		log.Printf("generating %s host key", t)
+		slog.Info("generating host key", "type", t)
 		cmd := exec.Command("ssh-keygen", "-t", t, "-f", keyPath, "-N", "")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -45,7 +45,7 @@ func Start() (*Process, error) {
 		return nil, fmt.Errorf("start sshd: %w", err)
 	}
 
-	log.Printf("sshd started (pid %d)", cmd.Process.Pid)
+	slog.Info("sshd started", "pid", cmd.Process.Pid)
 	return &Process{cmd: cmd}, nil
 }
 

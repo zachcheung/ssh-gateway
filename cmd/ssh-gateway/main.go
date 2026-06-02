@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,11 +26,17 @@ func configPath() string {
 }
 
 func main() {
-	log.SetFlags(log.Ldate | log.Ltime)
+	level := slog.LevelInfo
+	if v := os.Getenv("LOG_LEVEL"); v != "" {
+		if err := level.UnmarshalText([]byte(v)); err != nil {
+			slog.Warn("invalid LOG_LEVEL, using info", "value", v)
+		}
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
 
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil || !strings.Contains(string(data), "ID=alpine") {
-		log.Println("WARNING: not Alpine Linux, this tool is designed for containers only")
+		slog.Warn("not Alpine Linux, this tool is designed for containers only")
 	}
 
 	mgr := usermgr.New()
@@ -38,18 +44,20 @@ func main() {
 	// Initial reconcile must complete before sshd starts.
 	var initialInterval time.Duration
 	if cfg, err := reconcile(mgr); err != nil {
-		log.Printf("initial reconcile: %v", err)
+		slog.Warn("initial reconcile failed", "err", err)
 	} else {
 		initialInterval = cfg.GetReconcileInterval()
 	}
 
 	if err := sshd.GenerateHostKeys(); err != nil {
-		log.Fatalf("generate host keys: %v", err)
+		slog.Error("generate host keys", "err", err)
+		os.Exit(1)
 	}
 
 	proc, err := sshd.Start()
 	if err != nil {
-		log.Fatalf("start sshd: %v", err)
+		slog.Error("start sshd", "err", err)
+		os.Exit(1)
 	}
 
 	// reconcileCh is buffered 1: multiple simultaneous triggers collapse into one pending reconcile.
@@ -67,14 +75,14 @@ func main() {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
-		log.Printf("WARNING: could not create watcher: %v (SIGHUP only)", err)
+		slog.Warn("could not create watcher, falling back to SIGHUP only", "err", err)
 	} else {
 		watchDir := filepath.Dir(cfgPath)
 		if err := watcher.Add(watchDir); err != nil {
-			log.Printf("WARNING: could not watch %s: %v (SIGHUP only)", watchDir, err)
+			slog.Warn("could not watch config dir, falling back to SIGHUP only", "dir", watchDir, "err", err)
 			watcher.Close()
 		} else {
-			log.Printf("watching %s for changes", cfgPath)
+			slog.Info("watching config for changes", "path", cfgPath)
 			go func() {
 				defer watcher.Close()
 				for {
@@ -85,14 +93,14 @@ func main() {
 						}
 						if filepath.Base(event.Name) == cfgBase &&
 							(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
-							log.Println("config file changed, triggering reconcile")
+							slog.Info("config file changed, triggering reconcile")
 							trigger()
 						}
 					case err, ok := <-watcher.Errors:
 						if !ok {
 							return
 						}
-						log.Printf("watcher error: %v", err)
+						slog.Warn("watcher error", "err", err)
 					}
 				}
 			}()
@@ -106,12 +114,12 @@ func main() {
 		for sig := range sigCh {
 			switch sig {
 			case syscall.SIGHUP:
-				log.Println("SIGHUP received, triggering reconcile")
+				slog.Info("SIGHUP received, triggering reconcile")
 				trigger()
 			case syscall.SIGTERM, syscall.SIGINT:
-				log.Println("shutting down")
+				slog.Info("shutting down")
 				if err := proc.Stop(); err != nil {
-					log.Printf("stop sshd: %v", err)
+					slog.Warn("stop sshd", "err", err)
 				}
 				os.Exit(0)
 			}
@@ -130,7 +138,7 @@ func main() {
 			curInterval = initialInterval
 		)
 		if curInterval > 0 {
-			log.Printf("periodic reconcile enabled: every %s", curInterval)
+			slog.Info("periodic reconcile enabled", "interval", curInterval)
 			ticker = time.NewTicker(curInterval)
 			tickerCh = ticker.C
 		}
@@ -138,7 +146,7 @@ func main() {
 		runReconcile := func() {
 			cfg, err := reconcile(mgr)
 			if err != nil {
-				log.Printf("reconcile failed: %v", err)
+				slog.Warn("reconcile failed", "err", err)
 				return
 			}
 			interval := cfg.GetReconcileInterval()
@@ -151,11 +159,11 @@ func main() {
 				tickerCh = nil
 			}
 			if interval > 0 {
-				log.Printf("periodic reconcile enabled: every %s", interval)
+				slog.Info("periodic reconcile enabled", "interval", interval)
 				ticker = time.NewTicker(interval)
 				tickerCh = ticker.C
 			} else {
-				log.Println("periodic reconcile disabled")
+				slog.Info("periodic reconcile disabled")
 			}
 			curInterval = interval
 		}
@@ -176,9 +184,11 @@ func main() {
 	}()
 
 	if err := <-waitCh; err != nil {
-		log.Fatalf("sshd exited: %v", err)
+		slog.Error("sshd exited", "err", err)
+		os.Exit(1)
 	}
-	log.Fatal("sshd exited unexpectedly")
+	slog.Error("sshd exited unexpectedly")
+	os.Exit(1)
 }
 
 func reconcile(mgr *usermgr.Manager) (*config.Config, error) {
@@ -187,7 +197,7 @@ func reconcile(mgr *usermgr.Manager) (*config.Config, error) {
 		return nil, err
 	}
 
-	log.Printf("reconciling project %q (%d users)", cfg.Project, len(cfg.Users))
+	slog.Debug("reconciling", "project", cfg.Project, "users", len(cfg.Users))
 
 	keys, err := cfg.ResolveKeys()
 	if err != nil {
@@ -203,6 +213,6 @@ func reapChildren() {
 		if err != nil {
 			return
 		}
-		log.Printf("reaped zombie pid %d", pid)
+		slog.Debug("reaped zombie", "pid", pid)
 	}
 }
