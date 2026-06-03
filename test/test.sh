@@ -468,6 +468,33 @@ else
   ok "alice old key correctly rejected after periodic reconcile"
 fi
 
+# --- Test 15: key provider returns non-SSH content (e.g. auth redirect HTML) ---
+run_test "key provider returns non-SSH content"
+
+printf '<html><body>sign in</body></html>' | docker exec -i "$(container_id keyserver)" sh -c "cat > $KEYSERVER_HTML/alice.keys"
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+users:
+  - name: alice
+  - name: bob
+    keys:
+      - '$BOB_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo html-alice" 2>/dev/null | grep -q "html-alice"; then
+  ng "alice should be rejected (HTML is not a valid key)"
+else
+  ok "alice correctly rejected when key provider returns HTML"
+fi
+
+if ssh_jump bob id_bob "echo html-bob-ok" 2>/dev/null | grep -q "html-bob-ok"; then
+  ok "bob unaffected (inline key, not from key provider)"
+else
+  ng "bob should still work with inline key"
+fi
+
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

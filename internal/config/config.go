@@ -141,6 +141,22 @@ func (c *Config) validate() error {
 	return nil
 }
 
+// sshKeys drops lines that don't start with a recognised SSH public key type,
+// warning for each rejected line so misconfigured URLs (e.g. auth redirects
+// returning HTML) are visible in the logs.
+func sshKeys(keys []string, user string) []string {
+	var valid []string
+	for _, k := range keys {
+		prefix := strings.SplitN(k, " ", 2)[0]
+		if _, ok := sshPrefixToType[prefix]; ok {
+			valid = append(valid, k)
+		} else {
+			slog.Warn("dropping invalid key line", "user", user, "prefix", prefix)
+		}
+	}
+	return valid
+}
+
 func uniqueKeys(keys []string) []string {
 	seen := make(map[string]bool, len(keys))
 	var result []string
@@ -222,6 +238,7 @@ func (c *Config) ResolveKeys() (map[string][]string, error) {
 			}
 		}
 
+		keys = sshKeys(keys, u.Name)
 		keys = c.filterKeys(keys)
 		keys = uniqueKeys(keys)
 		if len(keys) == 0 {
