@@ -268,17 +268,23 @@ func (m *Manager) writeAuthorizedKeys(name string, keys []string) error {
 	sshDir := filepath.Join(home, ".ssh")
 	akPath := filepath.Join(sshDir, "authorized_keys")
 
+	uid, gid, err := m.lookupUID(name)
+	if err != nil {
+		return fmt.Errorf("lookup uid: %w", err)
+	}
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return fmt.Errorf("mkdir .ssh: %w", err)
+	}
+	if err := os.Chown(sshDir, uid, gid); err != nil {
+		return fmt.Errorf("chown .ssh: %w", err)
+	}
+
 	var content []byte
 	if len(keys) > 0 {
 		content = []byte(strings.Join(keys, "\n") + "\n")
 	}
 	if err := os.WriteFile(akPath, content, 0600); err != nil {
 		return err
-	}
-
-	uid, gid, err := m.lookupUID(name)
-	if err != nil {
-		return fmt.Errorf("lookup uid: %w", err)
 	}
 	return os.Chown(akPath, uid, gid)
 }
