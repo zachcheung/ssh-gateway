@@ -5,7 +5,7 @@ services:
     ports:
       - '2201:22'
     volumes:
-      - ./alpha/config.yaml:/etc/ssh-gateway/config.yaml:ro
+      - ./alpha:/etc/ssh-gateway:ro
       - ./alpha/ssh:/etc/ssh
       - ./alpha/home:/home
 
@@ -15,6 +15,6 @@ services:
     ports:
       - '2202:22'
     volumes:
-      - ./beta/config.yaml:/etc/ssh-gateway/config.yaml:ro
+      - ./beta:/etc/ssh-gateway:ro
       - ./beta/ssh:/etc/ssh
       - ./beta/home:/home

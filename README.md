@@ -57,6 +57,8 @@ docker compose up -d
 
 See [examples/](examples/) for multi-project and bind mount setups.
 
+> **Note:** Mount the config *directory* (`- .:/etc/ssh-gateway:ro`), not the individual file. Docker binds single-file mounts to the original inode, so editors that write atomically (rename into place) leave the container reading the old content and fsnotify never fires.
+
 ### Migrating existing host keys
 
 Host keys are generated once on first start and reused on subsequent starts via the `/etc/ssh` volume. To migrate keys from an existing server, place them in the volume directory **before** starting the container — `GenerateHostKeys` skips generation if the files already exist:

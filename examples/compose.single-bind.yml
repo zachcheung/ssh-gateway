@@ -5,6 +5,6 @@ services:
     ports:
       - '2201:22'
     volumes:
-      - ./config.yaml:/etc/ssh-gateway/config.yaml:ro
+      - .:/etc/ssh-gateway:ro
       - ./ssh:/etc/ssh
       - ./home:/home
