@@ -141,17 +141,26 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// sshKeys drops lines that don't start with a recognised SSH public key type,
-// warning for each rejected line so misconfigured URLs (e.g. auth redirects
-// returning HTML) are visible in the logs.
+// keyType scans the tokens in an authorized_keys line for a recognised SSH key
+// type, handling optional leading options (e.g. "no-pty ssh-ed25519 ...").
+func keyType(line string) (string, bool) {
+	for _, token := range strings.Fields(line) {
+		if kt, ok := sshPrefixToType[token]; ok {
+			return kt, true
+		}
+	}
+	return "", false
+}
+
+// sshKeys drops lines with no recognised SSH key type, warning for each so
+// misconfigured URLs (e.g. auth redirects returning HTML) are visible in logs.
 func sshKeys(keys []string, user string) []string {
 	var valid []string
 	for _, k := range keys {
-		prefix := strings.SplitN(k, " ", 2)[0]
-		if _, ok := sshPrefixToType[prefix]; ok {
+		if _, ok := keyType(k); ok {
 			valid = append(valid, k)
 		} else {
-			slog.Warn("dropping invalid key line", "user", user, "prefix", prefix)
+			slog.Warn("dropping invalid key line", "user", user, "line", k)
 		}
 	}
 	return valid
@@ -192,8 +201,7 @@ func (c *Config) filterKeys(keys []string) []string {
 
 	var filtered []string
 	for _, k := range keys {
-		prefix := strings.SplitN(k, " ", 2)[0]
-		kt, ok := sshPrefixToType[prefix]
+		kt, ok := keyType(k)
 		if !ok {
 			filtered = append(filtered, k)
 			continue

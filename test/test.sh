@@ -495,6 +495,36 @@ else
   ng "bob should still work with inline key"
 fi
 
+# --- Test 16: authorized_keys options prefix (e.g. no-pty ssh-ed25519 ...) ---
+run_test "authorized_keys options prefix"
+
+set_authorized_key alice id_alice.pub
+
+reload_gateway <<EOF
+project: test
+key_types:
+  allowed: [ed25519]
+users:
+  - name: alice
+    keys:
+      - 'no-pty $ALICE_PUB'
+  - name: bob
+    keys:
+      - 'no-pty $BOB_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo options-alice-ok" 2>/dev/null | grep -q "options-alice-ok"; then
+  ok "alice accepted with no-pty option prefix"
+else
+  ng "alice should be accepted with no-pty option prefix"
+fi
+
+if ssh_jump bob id_bob "echo options-bob-ok" 2>/dev/null | grep -q "options-bob-ok"; then
+  ok "bob accepted with no-pty option prefix"
+else
+  ng "bob should be accepted with no-pty option prefix"
+fi
+
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
