@@ -1,5 +1,11 @@
 # Release Notes
 
+## v0.3.1
+
+- Fix hardened sshd_config being bypassed when `/etc/ssh` is bind-mounted:
+  embed config in binary, always write to `/etc/sshd_config` (outside all
+  user volume mounts), start sshd with `-f /etc/sshd_config`
+
 ## v0.3.0
 
 - Auto-reload config via fsnotify: file writes trigger reconcile automatically without SIGHUP, works with Docker bind mounts and named volumes
