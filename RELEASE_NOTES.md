@@ -1,5 +1,14 @@
 # Release Notes
 
+## v0.3.0
+
+- Auto-reload config via fsnotify: file writes trigger reconcile automatically without SIGHUP, works with Docker bind mounts and named volumes
+- Add `reconcile_interval` config field for periodic key re-fetch from `key_provider` or URL keys (opt-in, minimum 5s)
+- Harden sshd: `AllowGroups ssh-gateway` restricts login to managed users only, `LoginGraceTime 30`, `ClientAliveInterval 15`/`ClientAliveCountMax 3` to clean up dead sessions
+- Fix `AllowGroups` regression: ssh-gateway group GID was hardcoded to 999, colliding with Alpine's built-in `ping` group; now allocated dynamically
+- Structured logging via `log/slog`; set `LOG_LEVEL=debug` to see per-reconcile detail
+- Add integration tests for fsnotify auto-reload and periodic key rotation
+
 ## v0.2.0
 
 - Improve reconcile logging: added/removed/updated results with key counts
