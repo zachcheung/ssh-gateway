@@ -87,7 +87,8 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 		if _, ok := desired[name]; !ok {
 			slog.Debug("removing user", "user", name)
 			if err := m.removeUser(name); err != nil {
-				return fmt.Errorf("remove user %q: %w", name, err)
+				slog.Warn("remove user failed", "user", name, "err", err)
+				continue
 			}
 			slog.Info("removed user", "user", name)
 		}
@@ -99,7 +100,8 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 		if isNew {
 			slog.Debug("adding user", "user", name)
 			if err := m.addUser(name); err != nil {
-				return fmt.Errorf("add user %q: %w", name, err)
+				slog.Warn("add user failed", "user", name, "err", err)
+				continue
 			}
 		} else {
 			oldKeys, _ = m.readAuthorizedKeys(name)
@@ -108,7 +110,8 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 			slog.Warn("user has no keys, access denied", "user", name)
 		}
 		if err := m.writeAuthorizedKeys(name, keys); err != nil {
-			return fmt.Errorf("write keys for %q: %w", name, err)
+			slog.Warn("write keys failed", "user", name, "err", err)
+			continue
 		}
 		if isNew {
 			slog.Info("added user", "user", name, "keys", len(keys))
