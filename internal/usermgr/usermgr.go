@@ -148,6 +148,34 @@ func (m *Manager) nextUID() (int, error) {
 	return maxUID + 1, nil
 }
 
+func (m *Manager) nextGID() (int, error) {
+	f, err := os.Open(m.groupPath)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+
+	maxGID := minUID - 1
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		fields := strings.SplitN(scanner.Text(), ":", 4)
+		if len(fields) < 3 {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[2])
+		if err != nil {
+			continue
+		}
+		if gid > maxGID {
+			maxGID = gid
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, err
+	}
+	return maxGID + 1, nil
+}
+
 func (m *Manager) addUser(name string) error {
 	uid, err := m.nextUID()
 	if err != nil {
@@ -305,7 +333,11 @@ func (m *Manager) ensureGroup(group string) error {
 	if err := scanner.Err(); err != nil {
 		return err
 	}
-	return m.appendLine(m.groupPath, fmt.Sprintf("%s:x:%d:", group, minUID-1))
+	gid, err := m.nextGID()
+	if err != nil {
+		return err
+	}
+	return m.appendLine(m.groupPath, fmt.Sprintf("%s:x:%d:", group, gid))
 }
 
 func (m *Manager) addGroupMember(group, user string) error {
