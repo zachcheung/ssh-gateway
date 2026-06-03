@@ -265,8 +265,11 @@ func (m *Manager) writeAuthorizedKeys(name string, keys []string) error {
 	sshDir := filepath.Join(home, ".ssh")
 	akPath := filepath.Join(sshDir, "authorized_keys")
 
-	content := strings.Join(keys, "\n") + "\n"
-	if err := os.WriteFile(akPath, []byte(content), 0600); err != nil {
+	var content []byte
+	if len(keys) > 0 {
+		content = []byte(strings.Join(keys, "\n") + "\n")
+	}
+	if err := os.WriteFile(akPath, content, 0600); err != nil {
 		return err
 	}
 
