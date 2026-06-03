@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.3.2
+
+- Fix: validate fetched SSH public keys — drop lines that don't start with a
+  recognised key type prefix, preventing auth redirect HTML or error pages
+  from being written to `authorized_keys`
+- Add version logging at startup; version is set via build-time `-ldflags`
+
 ## v0.3.1
 
 - Fix hardened sshd_config being bypassed when `/etc/ssh` is bind-mounted:
