@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.3.4
+
+- Fix: per-user errors (add, remove, write keys) now warn and continue
+  instead of aborting the reconcile — one bad user no longer blocks others
+- Fix: `writeAuthorizedKeys` ensures `.ssh` directory exists before writing,
+  recovering gracefully when a user's home was migrated without `.ssh/`
+
 ## v0.3.3
 
 - Fix GID collision: user personal group GID now allocated via `nextGID()`
