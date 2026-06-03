@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.3.3
+
+- Fix GID collision: user personal group GID now allocated via `nextGID()`
+  instead of `gid := uid` — the two scans are independent and could return
+  the same value, causing the user's primary group to appear as `ssh-gateway`
+- Fix orphaned home directory: `os.RemoveAll` now runs before group/passwd
+  removal in `removeUser` so a deletion failure keeps the user visible to the
+  next reconcile for retry, rather than leaving an unmanaged home forever
+- Fix double-reconcile on file save: 200ms debounce window collapses
+  rapid fsnotify events (truncate + write) into a single reconcile
+- Fix `authorized_keys` options prefix handling: `keyType()` now scans all
+  tokens in a key line so `no-pty ssh-ed25519 ...` validates and filters
+  correctly; previously the options prefix caused the key to be misidentified
+- Fix `authorized_keys` written with stray newline when user has no valid keys;
+  now writes a 0-byte file to explicitly revoke access
+- Fix examples using single-file config bind mount which breaks fsnotify;
+  mount the config directory instead (`- .:/etc/ssh-gateway:ro`)
+
 ## v0.3.2
 
 - Fix: validate fetched SSH public keys — drop lines that don't start with a
