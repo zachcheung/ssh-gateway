@@ -181,7 +181,10 @@ func (m *Manager) addUser(name string) error {
 	if err != nil {
 		return fmt.Errorf("next uid: %w", err)
 	}
-	gid := uid
+	gid, err := m.nextGID()
+	if err != nil {
+		return fmt.Errorf("next gid: %w", err)
+	}
 
 	if err := m.appendLine(m.groupPath, fmt.Sprintf("%s:x:%d:", name, gid)); err != nil {
 		return fmt.Errorf("append group: %w", err)
@@ -212,6 +215,11 @@ func (m *Manager) addUser(name string) error {
 }
 
 func (m *Manager) removeUser(name string) error {
+	home := filepath.Join(m.homeBase, name)
+	if err := os.RemoveAll(home); err != nil {
+		return fmt.Errorf("remove home: %w", err)
+	}
+
 	if err := m.removeGroupMember(managedGroup, name); err != nil {
 		return fmt.Errorf("remove from managed group: %w", err)
 	}
@@ -223,11 +231,6 @@ func (m *Manager) removeUser(name string) error {
 	}
 	if err := m.removeLine(m.groupPath, name+":"); err != nil {
 		return fmt.Errorf("remove from group: %w", err)
-	}
-
-	home := filepath.Join(m.homeBase, name)
-	if err := os.RemoveAll(home); err != nil {
-		return fmt.Errorf("remove home: %w", err)
 	}
 
 	return nil
