@@ -16,6 +16,9 @@ import (
 	"github.com/zachcheung/ssh-gateway/internal/usermgr"
 )
 
+// version is set at build time via -ldflags "-X main.version=v1.2.3".
+var version = "HEAD"
+
 const configDir = "/etc/ssh-gateway"
 
 func configPath() string {
@@ -33,6 +36,8 @@ func main() {
 		}
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+
+	slog.Info("starting", "version", version)
 
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil || !strings.Contains(string(data), "ID=alpine") {

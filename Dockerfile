@@ -4,7 +4,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /ssh-gateway ./cmd/ssh-gateway
+ARG VERSION=HEAD
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=${VERSION}" -trimpath -o /ssh-gateway ./cmd/ssh-gateway
 
 FROM alpine:latest
 
