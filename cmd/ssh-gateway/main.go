@@ -189,6 +189,18 @@ func main() {
 		for {
 			select {
 			case <-reconcileCh:
+				// Drain any follow-on triggers that arrive within the debounce
+				// window (e.g. truncate + write from a single file save).
+				timer := time.NewTimer(200 * time.Millisecond)
+			debounce:
+				for {
+					select {
+					case <-reconcileCh:
+						timer.Reset(200 * time.Millisecond)
+					case <-timer.C:
+						break debounce
+					}
+				}
 				runReconcile()
 			case <-tickerCh:
 				runReconcile()
