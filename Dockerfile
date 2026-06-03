@@ -10,25 +10,6 @@ FROM alpine:latest
 
 RUN apk add --no-cache openssh-server
 
-RUN <<EOF cat > /etc/ssh/sshd_config
-Port 22
-PermitRootLogin no
-PasswordAuthentication no
-PubkeyAuthentication yes
-AuthorizedKeysFile .ssh/authorized_keys
-AllowGroups ssh-gateway
-AllowTcpForwarding yes
-GatewayPorts no
-X11Forwarding no
-AllowAgentForwarding yes
-ForceCommand /bin/false
-PrintMotd no
-LoginGraceTime 30
-ClientAliveInterval 15
-ClientAliveCountMax 3
-PerSourcePenalties no
-EOF
-
 COPY --from=builder /ssh-gateway /usr/local/bin/ssh-gateway
 
 VOLUME /etc/ssh /home

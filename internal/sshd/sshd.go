@@ -1,6 +1,7 @@
 package sshd
 
 import (
+	_ "embed"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,12 +10,23 @@ import (
 )
 
 const (
-	sshdBin    = "/usr/sbin/sshd"
-	hostKeyDir = "/etc/ssh"
+	sshdBin      = "/usr/sbin/sshd"
+	hostKeyDir   = "/etc/ssh"
+	sshdConfPath = "/etc/sshd_config"
 )
+
+//go:embed sshd_config
+var defaultConfig []byte
 
 type Process struct {
 	cmd *exec.Cmd
+}
+
+// WriteConfig always writes the embedded sshd_config to sshdConfPath.
+// The path is outside all user-mounted volumes so it cannot be overridden from the host.
+func WriteConfig() error {
+	slog.Info("writing sshd_config", "path", sshdConfPath)
+	return os.WriteFile(sshdConfPath, defaultConfig, 0644)
 }
 
 func GenerateHostKeys() error {
@@ -36,7 +48,7 @@ func GenerateHostKeys() error {
 }
 
 func Start() (*Process, error) {
-	cmd := exec.Command(sshdBin, "-D", "-e")
+	cmd := exec.Command(sshdBin, "-D", "-e", "-f", sshdConfPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

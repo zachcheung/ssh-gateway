@@ -57,6 +57,11 @@ func main() {
 		initialInterval = cfg.GetReconcileInterval()
 	}
 
+	if err := sshd.WriteConfig(); err != nil {
+		slog.Error("write default sshd_config", "err", err)
+		os.Exit(1)
+	}
+
 	if err := sshd.GenerateHostKeys(); err != nil {
 		slog.Error("generate host keys", "err", err)
 		os.Exit(1)
