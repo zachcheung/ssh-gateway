@@ -50,6 +50,7 @@ type Config struct {
 	KeyTypes           KeyTypes `yaml:"key_types"`
 	ReconcileInterval  string   `yaml:"reconcile_interval"`
 	FetchKeysOnReload  bool     `yaml:"fetch_keys_on_reload"`
+	KeepSshdConfig     bool     `yaml:"keep_sshd_config"`
 	Users              []User   `yaml:"users"`
 }
 

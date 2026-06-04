@@ -81,13 +81,15 @@ func main() {
 
 	// Initial reconcile must complete before sshd starts.
 	var initialInterval time.Duration
+	var keepSshdConfig bool
 	if cfg, err := reconcile(mgr, triggerStartup); err != nil {
 		slog.Warn("initial reconcile failed", "err", err)
 	} else {
 		initialInterval = cfg.GetReconcileInterval()
+		keepSshdConfig = cfg.KeepSshdConfig
 	}
 
-	if err := sshd.WriteConfig(); err != nil {
+	if err := sshd.WriteConfig(keepSshdConfig); err != nil {
 		slog.Error("write default sshd_config", "err", err)
 		os.Exit(1)
 	}

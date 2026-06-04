@@ -37,6 +37,7 @@ users:
 | `key_types`            | Filter keys by type (`ecdsa`, `ecdsa-sk`, `ed25519`, `ed25519-sk`, `rsa`). Use `allowed` or `disallowed`; if both are set, `allowed` wins. |
 | `reconcile_interval`   | Periodically re-fetch keys from `key_provider` or URL keys, without any config file change. Useful when team members rotate their GitHub/GitLab keys. Minimum `5s`. Omit to disable. |
 | `fetch_keys_on_reload` | Re-fetch provider and URL keys on config reload (fsnotify / SIGHUP), in addition to the periodic interval. Default `false`: reloads only apply structural changes (users added/removed, inline keys updated) while leaving existing fetched keys untouched. Set to `true` to force an immediate key refresh on every reload. |
+| `keep_sshd_config`     | If `true` and `/etc/ssh/sshd_config` already exists, leave it untouched on startup — the operator owns that file. Default `false`: the file is replaced when it drifts from the built-in (with a warning). Useful when custom sshd tunables (e.g. connection limits, timeouts, banner) are needed. |
 
 ## Run
 

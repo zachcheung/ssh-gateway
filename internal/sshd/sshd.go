@@ -24,12 +24,17 @@ type Process struct {
 }
 
 // WriteConfig writes the embedded sshd_config to sshdConfPath on first run.
-// If the file already exists and matches the built-in, it is left untouched.
-// If it exists but differs (edited by operator or changed between versions),
-// a warning is logged and the file is replaced with the current built-in.
-func WriteConfig() error {
+// If keepExisting is true and the file exists, it is left untouched regardless
+// of content — the operator owns that file.
+// Otherwise, if the file matches the built-in it is left untouched; if it
+// differs a warning is logged and the file is replaced with the current built-in.
+func WriteConfig(keepExisting bool) error {
 	existing, err := os.ReadFile(sshdConfPath)
 	if err == nil {
+		if keepExisting {
+			slog.Info("sshd_config exists, keeping as-is (keep_sshd_config=true)", "path", sshdConfPath)
+			return nil
+		}
 		if bytes.Equal(existing, defaultConfig) {
 			slog.Info("sshd_config unchanged", "path", sshdConfPath)
 			return nil
