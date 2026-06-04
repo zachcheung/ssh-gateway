@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"golang.org/x/crypto/ssh"
 )
 
 const (
@@ -114,9 +116,22 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 			continue
 		}
 		if isNew {
-			slog.Info("added user", "user", name, "keys", countKeys(keys))
+			for line, ak := range keysBySource(keys) {
+				slog.Info("key added", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
+			}
 		} else if !keysEqual(oldKeys, keys) {
-			slog.Info("updated keys", "user", name, "old", countKeys(oldKeys), "new", countKeys(keys))
+			oldSet := keysBySource(oldKeys)
+			newSet := keysBySource(keys)
+			for line, ak := range newSet {
+				if _, exists := oldSet[line]; !exists {
+					slog.Info("key added", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
+				}
+			}
+			for line, ak := range oldSet {
+				if _, exists := newSet[line]; !exists {
+					slog.Info("key removed", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
+				}
+			}
 		}
 	}
 
@@ -279,6 +294,39 @@ func countKeys(lines []string) int {
 	}
 	return n
 }
+
+// keyFingerprint returns the SHA256 fingerprint of an authorized_keys line
+// in the same format sshd uses (e.g. "SHA256:abc123..."), allowing log
+// entries to be correlated with sshd's "Accepted publickey" lines.
+// Falls back to the raw line if parsing fails.
+func keyFingerprint(line string) string {
+	pk, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+	if err != nil {
+		return line
+	}
+	return ssh.FingerprintSHA256(pk)
+}
+
+type sourceKey struct {
+	line   string
+	source string
+}
+
+// keysBySource parses an annotated lines slice and returns a map of key line →
+// sourceKey, carrying the source marker that preceded each key in the file.
+func keysBySource(lines []string) map[string]sourceKey {
+	result := map[string]sourceKey{}
+	source := ""
+	for _, l := range lines {
+		if strings.HasPrefix(l, "# ssh-gateway:source=") {
+			source = strings.TrimPrefix(l, "# ssh-gateway:source=")
+		} else if !strings.HasPrefix(l, "#") && l != "" {
+			result[l] = sourceKey{line: l, source: source}
+		}
+	}
+	return result
+}
+
 
 func keysEqual(a, b []string) bool {
 	if len(a) != len(b) {
