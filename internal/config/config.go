@@ -45,11 +45,12 @@ type User struct {
 }
 
 type Config struct {
-	Project           string   `yaml:"project"`
-	KeyProvider       string   `yaml:"key_provider"`
-	KeyTypes          KeyTypes `yaml:"key_types"`
-	ReconcileInterval string   `yaml:"reconcile_interval"`
-	Users             []User   `yaml:"users"`
+	Project            string   `yaml:"project"`
+	KeyProvider        string   `yaml:"key_provider"`
+	KeyTypes           KeyTypes `yaml:"key_types"`
+	ReconcileInterval  string   `yaml:"reconcile_interval"`
+	FetchKeysOnReload  bool     `yaml:"fetch_keys_on_reload"`
+	Users              []User   `yaml:"users"`
 }
 
 // GetReconcileInterval returns the parsed interval, or 0 if not set.
@@ -166,16 +167,61 @@ func sshKeys(keys []string, user string) []string {
 	return valid
 }
 
-func uniqueKeys(keys []string) []string {
-	seen := make(map[string]bool, len(keys))
-	var result []string
-	for _, k := range keys {
-		if !seen[k] {
-			seen[k] = true
-			result = append(result, k)
+// Source annotation markers embedded as comments in authorized_keys.
+// sshd ignores comment lines, so markers are invisible to the SSH server.
+const (
+	markerPrefix = "# ssh-gateway:source="
+	markerInline = markerPrefix + "inline"
+)
+
+func markerForURL(url string) string      { return markerPrefix + "url:" + url }
+func markerForProvider(url string) string { return markerPrefix + "provider:" + url }
+
+// IsMarker reports whether line is a ssh-gateway source annotation.
+func IsMarker(line string) bool { return strings.HasPrefix(line, markerPrefix) }
+
+// keySection groups key lines under a single source marker.
+type keySection struct {
+	marker string
+	keys   []string
+}
+
+// parseExisting parses source-annotated authorized_keys lines into a map of
+// marker → key lines. Returns nil when no markers are present, signalling that
+// the file predates annotation (backward compat: treat as no existing state).
+func parseExisting(lines []string) map[string][]string {
+	for _, l := range lines {
+		if IsMarker(l) {
+			goto found
 		}
 	}
-	return result
+	return nil
+found:
+	sections := map[string][]string{}
+	cur := ""
+	for _, l := range lines {
+		if IsMarker(l) {
+			cur = l
+			if _, ok := sections[cur]; !ok {
+				sections[cur] = nil
+			}
+		} else if cur != "" && !strings.HasPrefix(l, "#") {
+			sections[cur] = append(sections[cur], l)
+		}
+	}
+	return sections
+}
+
+// resolveSourceKeys returns preserved keys from parsed[marker] when available,
+// otherwise calls fetch. A nil parsed map (no annotations) always fetches.
+func resolveSourceKeys(marker string, parsed map[string][]string, fetch func() ([]string, error)) ([]string, error) {
+	if parsed != nil {
+		if keys, ok := parsed[marker]; ok {
+			return keys, nil
+		}
+		// marker absent but file had annotations → new source → fetch
+	}
+	return fetch()
 }
 
 func (c *Config) filterKeys(keys []string) []string {
@@ -217,44 +263,95 @@ func (c *Config) filterKeys(keys []string) []string {
 	return filtered
 }
 
-func (c *Config) ResolveKeys() (map[string][]string, error) {
+// ResolveKeys resolves the authorized key lines for every configured user.
+//
+// When fetch is true (startup, periodic reconcile, or fetch_keys_on_reload),
+// all keys are fetched from their sources. When fetch is false (config reload
+// without fetch_keys_on_reload), existing is consulted: URL and provider
+// sections whose source marker is present in the existing annotated file are
+// preserved as-is; inline keys are always taken from the current config;
+// sources absent from the current config are dropped; sources new to the
+// config (marker not found in existing) are fetched. If existing[user] has no
+// source markers (pre-annotation file), the full fetch path is used.
+func (c *Config) ResolveKeys(fetch bool, existing map[string][]string) (map[string][]string, error) {
 	provider := c.ProviderURL()
 	m := make(map[string][]string, len(c.Users))
 
 	for _, u := range c.Users {
-		var keys []string
+		sections, err := c.resolveUserSections(u, provider, fetch, existing[u.Name])
+		if err != nil {
+			return nil, err
+		}
+		m[u.Name] = c.buildAnnotatedLines(sections, u.Name)
+	}
+	return m, nil
+}
 
-		if len(u.Keys) == 0 {
-			url := provider + "/" + u.Name + ".keys"
-			fetched, err := keyfetch.Fetch(url)
+func (c *Config) resolveUserSections(u User, provider string, fetch bool, existingLines []string) ([]keySection, error) {
+	var parsed map[string][]string
+	if !fetch {
+		parsed = parseExisting(existingLines)
+	}
+
+	if len(u.Keys) == 0 {
+		providerURL := provider + "/" + u.Name + ".keys"
+		marker := markerForProvider(providerURL)
+		keys, err := resolveSourceKeys(marker, parsed, func() ([]string, error) {
+			return keyfetch.Fetch(providerURL)
+		})
+		if err != nil {
+			return nil, fmt.Errorf("user %q: %w", u.Name, err)
+		}
+		return []keySection{{marker: marker, keys: keys}}, nil
+	}
+
+	var sections []keySection
+	var inlineKeys []string
+	for _, k := range u.Keys {
+		k = strings.TrimSpace(k)
+		if keyfetch.IsURL(k) {
+			marker := markerForURL(k)
+			url := k
+			keys, err := resolveSourceKeys(marker, parsed, func() ([]string, error) {
+				return keyfetch.Fetch(url)
+			})
 			if err != nil {
 				return nil, fmt.Errorf("user %q: %w", u.Name, err)
 			}
-			keys = fetched
+			sections = append(sections, keySection{marker: marker, keys: keys})
 		} else {
-			for _, k := range u.Keys {
-				k = strings.TrimSpace(k)
-				if keyfetch.IsURL(k) {
-					fetched, err := keyfetch.Fetch(k)
-					if err != nil {
-						return nil, fmt.Errorf("user %q: %w", u.Name, err)
-					}
-					keys = append(keys, fetched...)
-				} else {
-					keys = append(keys, k)
-				}
+			inlineKeys = append(inlineKeys, k)
+		}
+	}
+	if len(inlineKeys) > 0 {
+		sections = append([]keySection{{marker: markerInline, keys: inlineKeys}}, sections...)
+	}
+	return sections, nil
+}
+
+// buildAnnotatedLines applies SSH key validation, key_types filtering, and
+// global dedup across sections, then returns the flat annotated lines
+// (marker comment followed by key lines) ready for authorized_keys.
+func (c *Config) buildAnnotatedLines(sections []keySection, user string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	totalKeys := 0
+	for _, sec := range sections {
+		filtered := sshKeys(sec.keys, user)
+		filtered = c.filterKeys(filtered)
+		var deduped []string
+		for _, k := range filtered {
+			if !seen[k] {
+				seen[k] = true
+				deduped = append(deduped, k)
 			}
 		}
-
-		keys = sshKeys(keys, u.Name)
-		keys = c.filterKeys(keys)
-		keys = uniqueKeys(keys)
-		if len(keys) == 0 {
-			slog.Warn("all keys filtered by key_types", "user", u.Name)
-		}
-
-		m[u.Name] = keys
+		totalKeys += len(deduped)
+		result = append(result, sec.marker)
+		result = append(result, deduped...)
 	}
-
-	return m, nil
+	if totalKeys == 0 && len(sections) > 0 {
+		slog.Warn("all keys filtered by key_types", "user", user)
+	}
+	return result
 }

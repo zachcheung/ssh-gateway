@@ -525,6 +525,174 @@ else
   ng "bob should be accepted with no-pty option prefix"
 fi
 
+# --- Test 17: Config reload preserves provider keys (fetch_keys_on_reload=false) ---
+run_test "Config reload preserves provider keys (fetch_keys_on_reload=false)"
+
+# Keyserver serves alice's original key; dst accepts both alice keys so we can
+# test gateway auth independently of dst auth.
+docker cp /keys/id_alice.pub "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+docker exec "$(container_id dst)" sh -c "
+  cat /keys/id_alice.pub /keys/id_alice_new.pub > /home/alice/.ssh/authorized_keys
+  chown alice:alice /home/alice/.ssh/authorized_keys
+  chmod 600 /home/alice/.ssh/authorized_keys
+"
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+users:
+  - name: alice
+EOF
+
+if ssh_jump alice id_alice "echo preserve-initial-ok" 2>/dev/null | grep -q "preserve-initial-ok"; then
+  ok "alice original key works before keyserver rotation"
+else
+  ng "alice original key should work before keyserver rotation"
+fi
+
+# Rotate keyserver — gateway should NOT pick this up on the next config reload.
+docker cp /keys/id_alice_new.pub "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+users:
+  - name: alice
+EOF
+
+if ssh_jump alice id_alice "echo preserve-old-ok" 2>/dev/null | grep -q "preserve-old-ok"; then
+  ok "old key preserved on reload (fetch_keys_on_reload=false)"
+else
+  ng "old key should be preserved on reload (fetch_keys_on_reload=false)"
+fi
+
+if ssh_jump alice id_alice_new "echo preserve-new" 2>/dev/null | grep -q "preserve-new"; then
+  ng "new key should not be available (not fetched on reload)"
+else
+  ok "new key correctly not fetched on reload"
+fi
+
+# --- Test 18: fetch_keys_on_reload:true re-fetches provider keys on reload ---
+run_test "fetch_keys_on_reload:true re-fetches provider keys on reload"
+
+# Keyserver already serves id_alice_new; dst already accepts both alice keys.
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+fetch_keys_on_reload: true
+users:
+  - name: alice
+EOF
+
+if ssh_jump alice id_alice_new "echo refresh-new-ok" 2>/dev/null | grep -q "refresh-new-ok"; then
+  ok "new key works after reload with fetch_keys_on_reload=true"
+else
+  ng "new key should work after reload with fetch_keys_on_reload=true"
+fi
+
+if ssh_jump alice id_alice "echo refresh-old" 2>/dev/null | grep -q "refresh-old"; then
+  ng "old key should be rejected after fetch_keys_on_reload=true"
+else
+  ok "old key correctly rejected after reload with fetch_keys_on_reload=true"
+fi
+
+# --- Test 19: Source removed from config drops keys on reload ---
+run_test "Source removed from config drops keys on reload"
+
+# Keyserver still serves id_alice_new; dst still accepts both alice keys.
+# Configure alice with inline id_alice AND URL id_alice_new from keyserver.
+
+reload_gateway <<EOF
+project: test
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+      - http://keyserver/alice.keys
+EOF
+
+if ssh_jump alice id_alice "echo src-inline-ok" 2>/dev/null | grep -q "src-inline-ok"; then
+  ok "alice inline key works with mixed sources"
+else
+  ng "alice inline key should work with mixed sources"
+fi
+
+if ssh_jump alice id_alice_new "echo src-url-ok" 2>/dev/null | grep -q "src-url-ok"; then
+  ok "alice URL-sourced key works with mixed sources"
+else
+  ng "alice URL-sourced key should work with mixed sources"
+fi
+
+# Reload removing the URL source — URL-sourced keys should be evicted.
+reload_gateway <<EOF
+project: test
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo src-drop-inline-ok" 2>/dev/null | grep -q "src-drop-inline-ok"; then
+  ok "inline key preserved after URL source removed"
+else
+  ng "inline key should be preserved after URL source removed"
+fi
+
+if ssh_jump alice id_alice_new "echo src-drop-url" 2>/dev/null | grep -q "src-drop-url"; then
+  ng "URL-sourced key should be dropped when source removed from config"
+else
+  ok "URL-sourced key correctly dropped when source removed from config"
+fi
+
+# --- Test 20: Backward compat — no markers in authorized_keys triggers full fetch ---
+run_test "Backward compat: no source markers triggers full fetch on reload"
+
+# Start with alice's original key on keyserver; configure and reload to get annotated file.
+docker cp /keys/id_alice.pub "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+users:
+  - name: alice
+EOF
+
+if ssh_jump alice id_alice "echo compat-initial-ok" 2>/dev/null | grep -q "compat-initial-ok"; then
+  ok "alice original key works before marker strip"
+else
+  ng "alice original key should work before marker strip"
+fi
+
+# Strip source markers to simulate a pre-annotation authorized_keys file.
+docker exec "$(container_id gateway)" sh -c "
+  grep -v '^# ssh-gateway:' /home/alice/.ssh/authorized_keys > /tmp/ak_stripped
+  cp /tmp/ak_stripped /home/alice/.ssh/authorized_keys
+"
+
+# Rotate keyserver to new key.
+docker cp /keys/id_alice_new.pub "$(container_id keyserver)":$KEYSERVER_HTML/alice.keys
+
+# Reload without fetch_keys_on_reload — no markers in file should trigger full fetch.
+reload_gateway <<EOF
+project: test
+key_provider: http://keyserver
+users:
+  - name: alice
+EOF
+
+if ssh_jump alice id_alice_new "echo compat-new-ok" 2>/dev/null | grep -q "compat-new-ok"; then
+  ok "full fetch triggered when authorized_keys has no source markers"
+else
+  ng "full fetch should be triggered when no source markers present"
+fi
+
+if ssh_jump alice id_alice "echo compat-old" 2>/dev/null | grep -q "compat-old"; then
+  ng "old key should be replaced after full fetch"
+else
+  ok "old key correctly replaced after full fetch (no-markers path)"
+fi
+
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1

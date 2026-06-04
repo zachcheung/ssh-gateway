@@ -106,7 +106,7 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 		} else {
 			oldKeys, _ = m.readAuthorizedKeys(name)
 		}
-		if len(keys) == 0 {
+		if countKeys(keys) == 0 {
 			slog.Warn("user has no keys, access denied", "user", name)
 		}
 		if err := m.writeAuthorizedKeys(name, keys); err != nil {
@@ -114,9 +114,9 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 			continue
 		}
 		if isNew {
-			slog.Info("added user", "user", name, "keys", len(keys))
+			slog.Info("added user", "user", name, "keys", countKeys(keys))
 		} else if !keysEqual(oldKeys, keys) {
-			slog.Info("updated keys", "user", name, "old", len(oldKeys), "new", len(keys))
+			slog.Info("updated keys", "user", name, "old", countKeys(oldKeys), "new", countKeys(keys))
 		}
 	}
 
@@ -245,13 +245,39 @@ func (m *Manager) readAuthorizedKeys(name string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	var keys []string
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	var lines []string
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
 		if line != "" {
-			keys = append(keys, line)
+			lines = append(lines, line)
 		}
 	}
-	return keys, nil
+	return lines, nil
+}
+
+// ReadAnnotatedKeys reads the raw authorized_keys content (including source
+// marker comments) for each user in the provided set. Missing files are
+// silently skipped.
+func (m *Manager) ReadAnnotatedKeys(users map[string]bool) map[string][]string {
+	result := make(map[string][]string, len(users))
+	for name := range users {
+		lines, err := m.readAuthorizedKeys(name)
+		if err == nil {
+			result[name] = lines
+		}
+	}
+	return result
+}
+
+// countKeys returns the number of non-comment lines (actual key entries).
+func countKeys(lines []string) int {
+	n := 0
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "#") {
+			n++
+		}
+	}
+	return n
 }
 
 func keysEqual(a, b []string) bool {
@@ -284,7 +310,7 @@ func (m *Manager) writeAuthorizedKeys(name string, keys []string) error {
 
 	var content []byte
 	if len(keys) > 0 {
-		content = []byte(strings.Join(keys, "\n") + "\n")
+		content = []byte("# This file is managed by ssh-gateway. Do not edit manually.\n" + strings.Join(keys, "\n") + "\n")
 	}
 	if err := os.WriteFile(akPath, content, 0600); err != nil {
 		return err

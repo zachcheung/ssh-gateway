@@ -30,12 +30,13 @@ users:
   - name: bob
 ```
 
-| Field | Description |
-|-------|-------------|
-| `project` | Project name (required) |
-| `key_provider` | Default key source for users without explicit `keys`. Shorthands: `github`, `gitlab`, or a full URL base (e.g. `https://keys.example.com`). Keys are fetched from `<base>/<username>.keys`. |
-| `key_types` | Filter keys by type (`ecdsa`, `ecdsa-sk`, `ed25519`, `ed25519-sk`, `rsa`). Use `allowed` or `disallowed`; if both are set, `allowed` wins. |
-| `reconcile_interval` | Periodically re-fetch keys from `key_provider` or URL keys, without any config file change. Useful when team members rotate their GitHub/GitLab keys. Minimum `5s`. Omit to disable. |
+| Field                  | Description |
+|------------------------|-------------|
+| `project`              | Project name (required) |
+| `key_provider`         | Default key source for users without explicit `keys`. Shorthands: `github`, `gitlab`, or a full URL base (e.g. `https://keys.example.com`). Keys are fetched from `<base>/<username>.keys`. |
+| `key_types`            | Filter keys by type (`ecdsa`, `ecdsa-sk`, `ed25519`, `ed25519-sk`, `rsa`). Use `allowed` or `disallowed`; if both are set, `allowed` wins. |
+| `reconcile_interval`   | Periodically re-fetch keys from `key_provider` or URL keys, without any config file change. Useful when team members rotate their GitHub/GitLab keys. Minimum `5s`. Omit to disable. |
+| `fetch_keys_on_reload` | Re-fetch provider and URL keys on config reload (fsnotify / SIGHUP), in addition to the periodic interval. Default `false`: reloads only apply structural changes (users added/removed, inline keys updated) while leaving existing fetched keys untouched. Set to `true` to force an immediate key refresh on every reload. |
 
 ## Run
 
@@ -113,6 +114,8 @@ Host alpha1
 A single host serves as SSH jump gateway for multiple projects, each with isolated users. One container per project, managed via YAML config.
 
 The Go binary manages sshd and system users inside the container. It reconciles users and their `authorized_keys` on three triggers: startup, config file change (via inotify watch on the config directory), and `SIGHUP`. If `reconcile_interval` is set, keys are also re-fetched on a timer to pick up external key rotations without any config change. No shell access is granted (`ForceCommand /bin/false`). Host keys and home directories are persisted via Docker volumes.
+
+Each `authorized_keys` file is managed exclusively by ssh-gateway and annotated with source markers (ignored by sshd) that track where each key came from. On a config reload, only inline keys are updated from the config; provider and URL keys are preserved from the previous fetch. This means a compromised key provider cannot push new keys via a config reload — keys from external sources only change when the periodic timer fires (or when `fetch_keys_on_reload: true` is set). A container restart behaves the same as a config reload; only a missing `authorized_keys` file (first-ever start) triggers a fetch unconditionally. Sources removed from the config are evicted immediately on any reload.
 
 ## Development
 

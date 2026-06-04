@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -20,6 +21,14 @@ import (
 var version = "HEAD"
 
 const configDir = "/etc/ssh-gateway"
+
+type reconcileTrigger int
+
+const (
+	triggerStartup  reconcileTrigger = iota
+	triggerReload
+	triggerPeriodic
+)
 
 func configPath() string {
 	if p := os.Getenv("SSH_GATEWAY_PROJECT"); p != "" {
@@ -56,7 +65,7 @@ func main() {
 
 	// Initial reconcile must complete before sshd starts.
 	var initialInterval time.Duration
-	if cfg, err := reconcile(mgr); err != nil {
+	if cfg, err := reconcile(mgr, triggerStartup); err != nil {
 		slog.Warn("initial reconcile failed", "err", err)
 	} else {
 		initialInterval = cfg.GetReconcileInterval()
@@ -161,8 +170,8 @@ func main() {
 			tickerCh = ticker.C
 		}
 
-		runReconcile := func() {
-			cfg, err := reconcile(mgr)
+		runReconcile := func(trigger reconcileTrigger) {
+			cfg, err := reconcile(mgr, trigger)
 			if err != nil {
 				slog.Warn("reconcile failed", "err", err)
 				return
@@ -201,9 +210,9 @@ func main() {
 						break debounce
 					}
 				}
-				runReconcile()
+				runReconcile(triggerReload)
 			case <-tickerCh:
-				runReconcile()
+				runReconcile(triggerPeriodic)
 			}
 		}
 	}()
@@ -221,15 +230,26 @@ func main() {
 	os.Exit(1)
 }
 
-func reconcile(mgr *usermgr.Manager) (*config.Config, error) {
+func reconcile(mgr *usermgr.Manager, trigger reconcileTrigger) (*config.Config, error) {
 	cfg, err := config.Load(configPath())
 	if err != nil {
 		return nil, err
 	}
 
-	slog.Debug("reconciling", "project", cfg.Project, "users", len(cfg.Users))
+	fetch := trigger == triggerPeriodic || cfg.FetchKeysOnReload
 
-	keys, err := cfg.ResolveKeys()
+	var existing map[string][]string
+	if !fetch {
+		users, err := mgr.ListUsers()
+		if err != nil {
+			return nil, fmt.Errorf("list users: %w", err)
+		}
+		existing = mgr.ReadAnnotatedKeys(users)
+	}
+
+	slog.Debug("reconciling", "project", cfg.Project, "users", len(cfg.Users), "fetch", fetch)
+
+	keys, err := cfg.ResolveKeys(fetch, existing)
 	if err != nil {
 		return nil, err
 	}
