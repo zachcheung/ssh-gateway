@@ -84,7 +84,7 @@ set_authorized_key() {
   "
 }
 
-rm -f /keys/* /config/*
+rm -rf /keys/* /config/*
 printf "Generating keys...\n"
 ssh-keygen -t ed25519 -f /keys/id_alice -N '' -C alice@laptop > /dev/null 2>&1
 ssh-keygen -t ed25519 -f /keys/id_alice_new -N '' -C alice@new-laptop > /dev/null 2>&1

@@ -2,6 +2,7 @@ package sshd
 
 import (
 	_ "embed"
+	"bytes"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +13,7 @@ import (
 const (
 	sshdBin      = "/usr/sbin/sshd"
 	hostKeyDir   = "/etc/ssh"
-	sshdConfPath = "/etc/sshd_config"
+	sshdConfPath = "/etc/ssh/sshd_config"
 )
 
 //go:embed sshd_config
@@ -22,9 +23,19 @@ type Process struct {
 	cmd *exec.Cmd
 }
 
-// WriteConfig always writes the embedded sshd_config to sshdConfPath.
-// The path is outside all user-mounted volumes so it cannot be overridden from the host.
+// WriteConfig writes the embedded sshd_config to sshdConfPath on first run.
+// If the file already exists and matches the built-in, it is left untouched.
+// If it exists but differs (edited by operator or changed between versions),
+// a warning is logged and the file is replaced with the current built-in.
 func WriteConfig() error {
+	existing, err := os.ReadFile(sshdConfPath)
+	if err == nil {
+		if bytes.Equal(existing, defaultConfig) {
+			slog.Info("sshd_config unchanged", "path", sshdConfPath)
+			return nil
+		}
+		slog.Warn("sshd_config differs from built-in, replacing", "path", sshdConfPath)
+	}
 	slog.Info("writing sshd_config", "path", sshdConfPath)
 	return os.WriteFile(sshdConfPath, defaultConfig, 0644)
 }
