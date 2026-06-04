@@ -1,5 +1,23 @@
 # Release Notes
 
+## v0.4.0
+
+- Add `fetch_keys_on_reload` config field (default `false`): config reloads
+  and container restarts now preserve existing provider/URL keys instead of
+  re-fetching, limiting key changes to the periodic timer or an explicit opt-in
+- Annotate `authorized_keys` with `# ssh-gateway:source=…` markers so the
+  reconciler tracks key origin (inline / url / provider) across runs; sshd
+  ignores comment lines
+- Sources removed from config are evicted on any reload; sources new to the
+  config are fetched even without `fetch_keys_on_reload`
+- Files with no source markers (pre-upgrade or manually written) fall back to
+  a full fetch for backward compatibility
+- Log per-key `key added` / `key removed` events with source and SHA256
+  fingerprint matching sshd's `Accepted publickey` format for direct
+  correlation; replaces the coarse "updated keys old=N new=M" message
+- Add `# This file is managed by ssh-gateway. Do not edit manually.` header
+  to every managed `authorized_keys` file
+
 ## v0.3.4
 
 - Fix: per-user errors (add, remove, write keys) now warn and continue
