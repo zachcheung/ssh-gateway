@@ -1,5 +1,22 @@
 # Release Notes
 
+## v0.5.0
+
+- Support multiple config file locations searched in priority order:
+  `config.yaml`, `config.yml`, `config/config.yaml`, `config/config.yml`; the `config/` subdirectory layout allows
+  mounting only the config directory (`./config:/etc/ssh-gateway/config:ro`)
+  instead of the full `/etc/ssh-gateway` tree
+- fsnotify watcher resolves the config path once at startup and watches
+  only that file; starts in discovery mode across all candidate directories
+  if no config is found at startup, then locks onto the first file that
+  appears
+- Move `sshd_config` to `/etc/ssh/sshd_config` so it lives alongside the
+  host keys in the same volume; on startup the file is written only if
+  absent, or replaced with a warning if it has drifted from the built-in
+- Add `keep_sshd_config` config field (default `false`): when `true`,
+  an existing `/etc/ssh/sshd_config` is never touched on startup,
+  letting operators tune sshd (connection limits, timeouts, banner, etc.)
+
 ## v0.4.0
 
 - Add `fetch_keys_on_reload` config field (default `false`): config reloads
