@@ -54,6 +54,20 @@ reload_gateway() {
   sleep 1
 }
 
+# Write config to a specific path relative to /config and reload via SIGHUP.
+# All candidate config files are removed first to avoid ambiguity.
+reload_config_at() {
+  path=$1
+  rm -f /config/config.yaml /config/config.yml
+  rm -f /config/config/config.yaml /config/config/config.yml
+  mkdir -p "$(dirname "/config/$path")"
+  cat > "/config/$path"
+  printf "  reloading gateway (config at /etc/ssh-gateway/%s)...\n" "$path"
+  docker kill -s HUP "$(container_id gateway)" > /dev/null
+  sleep 1
+  printf "  reloaded\n"
+}
+
 # Write config without SIGHUP — relies on fsnotify to trigger reconcile.
 write_config() {
   cat > /config/config.yaml
@@ -692,6 +706,69 @@ if ssh_jump alice id_alice "echo compat-old" 2>/dev/null | grep -q "compat-old";
 else
   ok "old key correctly replaced after full fetch (no-markers path)"
 fi
+
+# --- Test 21: config.yml extension ---
+run_test "Config file: .yml extension"
+
+set_authorized_key alice id_alice.pub
+
+reload_config_at "config.yml" <<EOF
+project: test
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo yml-ext-ok" 2>/dev/null | grep -q "yml-ext-ok"; then
+  ok "config.yml loaded"
+else
+  ng "config.yml should be loaded"
+fi
+
+# --- Test 22: config/ subdirectory ---
+run_test "Config file: config/ subdirectory"
+
+reload_config_at "config/config.yaml" <<EOF
+project: test
+users:
+  - name: alice
+    keys:
+      - '$ALICE_PUB'
+EOF
+
+if ssh_jump alice id_alice "echo subdir-ok" 2>/dev/null | grep -q "subdir-ok"; then
+  ok "config/config.yaml loaded"
+else
+  ng "config/config.yaml should be loaded"
+fi
+
+# --- Test 23: config.yaml takes priority over config.yml ---
+run_test "Config file priority: config.yaml over config.yml"
+
+# config.yml has bob only; config.yaml has alice only — config.yaml must win.
+rm -f /config/config.yaml /config/config.yml
+rm -f /config/config/config.yaml /config/config/config.yml
+printf "project: test\nusers:\n  - name: bob\n    keys:\n      - '$BOB_PUB'\n" > /config/config.yml
+printf "project: test\nusers:\n  - name: alice\n    keys:\n      - '$ALICE_PUB'\n" > /config/config.yaml
+printf "  reloading gateway...\n"
+docker kill -s HUP "$(container_id gateway)" > /dev/null
+sleep 1
+printf "  reloaded\n"
+
+if ssh_jump alice id_alice "echo prio-alice-ok" 2>/dev/null | grep -q "prio-alice-ok"; then
+  ok "config.yaml takes priority (alice accessible)"
+else
+  ng "config.yaml should take priority over config.yml"
+fi
+
+if ssh_jump bob id_bob "echo prio-bob" 2>/dev/null | grep -q "prio-bob"; then
+  ng "bob should not be present (config.yml ignored)"
+else
+  ok "config.yml correctly ignored when config.yaml exists"
+fi
+
+rm -f /config/config.yml
 
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"

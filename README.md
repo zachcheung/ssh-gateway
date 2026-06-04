@@ -58,7 +58,20 @@ docker compose up -d
 
 See [examples/](examples/) for multi-project and bind mount setups.
 
-> **Note:** Mount the config *directory* (`- .:/etc/ssh-gateway:ro`), not the individual file. Docker binds single-file mounts to the original inode, so editors that write atomically (rename into place) leave the container reading the old content and fsnotify never fires.
+> **Note:** Mount the config *directory*, not the individual file. Docker binds single-file mounts to the original inode, so editors that write atomically (rename into place) leave the container reading the old content and fsnotify never fires.
+
+### Config file locations
+
+The binary searches for the config file in the following order, stopping at the first match:
+
+| Path | Example mount |
+|------|---------------|
+| `/etc/ssh-gateway/config.yaml` | `- .:/etc/ssh-gateway:ro` |
+| `/etc/ssh-gateway/config.yml` | `- .:/etc/ssh-gateway:ro` |
+| `/etc/ssh-gateway/config/config.yaml` | `- ./config:/etc/ssh-gateway/config:ro` |
+| `/etc/ssh-gateway/config/config.yml` | `- ./config:/etc/ssh-gateway/config:ro` |
+
+The `config/` subdirectory layout lets you mount only the config directory rather than the entire `/etc/ssh-gateway` tree, which is useful when host keys or other generated files share the parent directory.
 
 ### Migrating existing host keys
 

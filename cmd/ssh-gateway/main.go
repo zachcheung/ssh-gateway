@@ -30,11 +30,27 @@ const (
 	triggerPeriodic
 )
 
-func configPath() string {
+func configCandidates() []string {
+	base := configDir
 	if p := os.Getenv("SSH_GATEWAY_PROJECT"); p != "" {
-		return configDir + "/" + p + "/config.yaml"
+		base = configDir + "/" + p
 	}
-	return configDir + "/config.yaml"
+	return []string{
+		base + "/config.yaml",
+		base + "/config.yml",
+		base + "/config/config.yaml",
+		base + "/config/config.yml",
+	}
+}
+
+func findConfigPath() (string, error) {
+	candidates := configCandidates()
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("config file not found (tried: %s)", strings.Join(candidates, ", "))
 }
 
 func main() {
@@ -96,33 +112,79 @@ func main() {
 		}
 	}
 
-	// Watch config directory for file changes (handles atomic-rename writes from editors).
-	cfgPath := configPath()
-	cfgBase := filepath.Base(cfgPath)
+	// Watch config for changes (handles atomic-rename writes from editors).
+	// If config is found at startup, watch only its directory. Otherwise enter
+	// discovery mode: watch all candidate directories until a config file appears,
+	// then transition to watching only that file.
+	resolvedPath, _ := findConfigPath()
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		slog.Warn("could not create watcher, falling back to SIGHUP only", "err", err)
 	} else {
-		watchDir := filepath.Dir(cfgPath)
-		if err := watcher.Add(watchDir); err != nil {
-			slog.Warn("could not watch config dir, falling back to SIGHUP only", "dir", watchDir, "err", err)
-			watcher.Close()
+		var watcherReady bool
+		if resolvedPath != "" {
+			if err := watcher.Add(filepath.Dir(resolvedPath)); err != nil {
+				slog.Warn("could not watch config dir, falling back to SIGHUP only", "dir", filepath.Dir(resolvedPath), "err", err)
+				watcher.Close()
+			} else {
+				slog.Info("watching config for changes", "path", resolvedPath)
+				watcherReady = true
+			}
 		} else {
-			slog.Info("watching config for changes", "path", cfgPath)
+			added := 0
+			for _, p := range configCandidates() {
+				if err := watcher.Add(filepath.Dir(p)); err == nil {
+					added++
+				}
+			}
+			if added == 0 {
+				slog.Warn("could not watch any config dir, falling back to SIGHUP only")
+				watcher.Close()
+			} else {
+				slog.Info("watching for config file (discovery mode)", "candidates", configCandidates())
+				watcherReady = true
+			}
+		}
+
+		if watcherReady {
 			go func() {
 				defer watcher.Close()
+				current := resolvedPath
 				for {
 					select {
 					case event, ok := <-watcher.Events:
 						if !ok {
 							return
 						}
-						if filepath.Base(event.Name) == cfgBase &&
-							(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
-							slog.Info("config file changed, triggering reconcile")
-							trigger()
+						if !(event.Has(fsnotify.Write) || event.Has(fsnotify.Create)) {
+							continue
 						}
+						base := filepath.Base(event.Name)
+						if current == "" {
+							// Discovery mode: wait for any config.yaml or config.yml.
+							if base != "config.yaml" && base != "config.yml" {
+								continue
+							}
+							p, err := findConfigPath()
+							if err != nil {
+								continue
+							}
+							// Transition: drop all candidate watches, lock onto resolved path.
+							for _, c := range configCandidates() {
+								_ = watcher.Remove(filepath.Dir(c))
+							}
+							if err := watcher.Add(filepath.Dir(p)); err != nil {
+								slog.Warn("could not watch config dir after discovery", "dir", filepath.Dir(p), "err", err)
+								return
+							}
+							current = p
+							slog.Info("config file found, watching", "path", current)
+						} else if base != filepath.Base(current) {
+							continue
+						}
+						slog.Info("config file changed, triggering reconcile")
+						trigger()
 					case err, ok := <-watcher.Errors:
 						if !ok {
 							return
@@ -231,7 +293,11 @@ func main() {
 }
 
 func reconcile(mgr *usermgr.Manager, trigger reconcileTrigger) (*config.Config, error) {
-	cfg, err := config.Load(configPath())
+	path, err := findConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := config.Load(path)
 	if err != nil {
 		return nil, err
 	}
