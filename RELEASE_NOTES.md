@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.6.0
+
+- Add `log_endpoint` config field: forward structured JSON logs to an external
+  processor (`tcp://`, `udp://`, `http://`, `https://`); stdout always receives
+  text logs, the endpoint receives JSON in parallel
+- Each reconcile emits a `phase: start` and `phase: end` record sharing an
+  `event_id` (random 8-byte hex), plus per-change records between them
+  (`user added`, `user removed`, `key added`, `key removed`); the `changes`
+  field on the end record allows processors to suppress no-op notifications
+- `trigger` field (`startup` / `reload` / `periodic`) carried on every reconcile
+  log record for filtering by event source
+- Endpoint writer is initialised before the startup reconcile so first-deploy
+  events are not silently dropped
+- Fix: `readAuthorizedKeys` included the managed-by header comment in key
+  comparison, causing every reload to report spurious key changes
+
 ## v0.5.0
 
 - Support multiple config file locations searched in priority order:
