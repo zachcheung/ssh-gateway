@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -60,7 +62,8 @@ func main() {
 			slog.Warn("invalid LOG_LEVEL, using info", "value", v)
 		}
 	}
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	opts := &slog.HandlerOptions{Level: level}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, opts)))
 
 	slog.Info("starting", "version", version)
 
@@ -79,6 +82,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set up endpoint logging before the initial reconcile so startup events
+	// are captured. reconcile() re-loads the config; this early load is only
+	// for endpoint initialisation.
+	var initialEndpoint string
+	var initialEW *endpointWriter
+	if cfgPath, err := findConfigPath(); err == nil {
+		if cfg, err := config.Load(cfgPath); err == nil && cfg.LogEndpoint != "" {
+			if ew, err := newEndpointWriter(cfg.LogEndpoint); err != nil {
+				slog.Warn("invalid log_endpoint, endpoint logging disabled", "err", err)
+			} else {
+				initialEW = ew
+				initialEndpoint = cfg.LogEndpoint
+				slog.SetDefault(slog.New(newMultiHandler(
+					slog.NewTextHandler(os.Stdout, opts),
+					slog.NewJSONHandler(ew, opts),
+				)))
+			}
+		}
+	}
+
 	// Initial reconcile must complete before sshd starts.
 	var initialInterval time.Duration
 	var keepSshdConfig bool
@@ -87,6 +110,27 @@ func main() {
 	} else {
 		initialInterval = cfg.GetReconcileInterval()
 		keepSshdConfig = cfg.KeepSshdConfig
+		if cfg.LogEndpoint != initialEndpoint {
+			if initialEW != nil {
+				initialEW.close()
+				initialEW = nil
+			}
+			initialEndpoint = ""
+			if cfg.LogEndpoint != "" {
+				if ew, err := newEndpointWriter(cfg.LogEndpoint); err != nil {
+					slog.Warn("invalid log_endpoint, endpoint logging disabled", "err", err)
+				} else {
+					initialEW = ew
+					initialEndpoint = cfg.LogEndpoint
+					slog.SetDefault(slog.New(newMultiHandler(
+						slog.NewTextHandler(os.Stdout, opts),
+						slog.NewJSONHandler(ew, opts),
+					)))
+				}
+			} else {
+				slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, opts)))
+			}
+		}
 	}
 
 	if err := sshd.WriteConfig(keepSshdConfig); err != nil {
@@ -227,6 +271,8 @@ func main() {
 			ticker      *time.Ticker
 			tickerCh    <-chan time.Time
 			curInterval = initialInterval
+			curEndpoint = initialEndpoint
+			curEW       = initialEW
 		)
 		if curInterval > 0 {
 			slog.Info("periodic reconcile enabled", "interval", curInterval)
@@ -240,23 +286,44 @@ func main() {
 				slog.Warn("reconcile failed", "err", err)
 				return
 			}
-			interval := cfg.GetReconcileInterval()
-			if interval == curInterval {
-				return
+
+			if interval := cfg.GetReconcileInterval(); interval != curInterval {
+				if ticker != nil {
+					ticker.Stop()
+					ticker = nil
+					tickerCh = nil
+				}
+				if interval > 0 {
+					slog.Info("periodic reconcile enabled", "interval", interval)
+					ticker = time.NewTicker(interval)
+					tickerCh = ticker.C
+				} else {
+					slog.Info("periodic reconcile disabled")
+				}
+				curInterval = interval
 			}
-			if ticker != nil {
-				ticker.Stop()
-				ticker = nil
-				tickerCh = nil
+
+			if cfg.LogEndpoint != curEndpoint {
+				if curEW != nil {
+					curEW.close()
+					curEW = nil
+				}
+				var handler slog.Handler = slog.NewTextHandler(os.Stdout, opts)
+				if cfg.LogEndpoint != "" {
+					ew, err := newEndpointWriter(cfg.LogEndpoint)
+					if err != nil {
+						slog.Warn("invalid log_endpoint, endpoint logging disabled", "err", err)
+					} else {
+						curEW = ew
+						handler = newMultiHandler(
+							slog.NewTextHandler(os.Stdout, opts),
+							slog.NewJSONHandler(ew, opts),
+						)
+					}
+				}
+				slog.SetDefault(slog.New(handler))
+				curEndpoint = cfg.LogEndpoint
 			}
-			if interval > 0 {
-				slog.Info("periodic reconcile enabled", "interval", interval)
-				ticker = time.NewTicker(interval)
-				tickerCh = ticker.C
-			} else {
-				slog.Info("periodic reconcile disabled")
-			}
-			curInterval = interval
 		}
 
 		for {
@@ -315,13 +382,34 @@ func reconcile(mgr *usermgr.Manager, trigger reconcileTrigger) (*config.Config, 
 		existing = mgr.ReadAnnotatedKeys(users)
 	}
 
-	slog.Debug("reconciling", "project", cfg.Project, "users", len(cfg.Users), "fetch", fetch)
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	logger := slog.Default().With("event_id", hex.EncodeToString(b), "trigger", triggerName(trigger), "project", cfg.Project)
+	logger.Info("reconcile", "phase", "start", "users", len(cfg.Users), "fetch", fetch)
 
 	keys, err := cfg.ResolveKeys(fetch, existing)
 	if err != nil {
 		return nil, err
 	}
-	return cfg, mgr.Reconcile(keys)
+	changes, err := mgr.Reconcile(keys, logger)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("reconcile", "phase", "end", "changes", changes)
+	return cfg, nil
+}
+
+func triggerName(t reconcileTrigger) string {
+	switch t {
+	case triggerStartup:
+		return "startup"
+	case triggerReload:
+		return "reload"
+	case triggerPeriodic:
+		return "periodic"
+	default:
+		return "unknown"
+	}
 }
 
 func reapChildren() {

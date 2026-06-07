@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -51,6 +52,7 @@ type Config struct {
 	ReconcileInterval  string   `yaml:"reconcile_interval"`
 	FetchKeysOnReload  bool     `yaml:"fetch_keys_on_reload"`
 	KeepSshdConfig     bool     `yaml:"keep_sshd_config"`
+	LogEndpoint        string   `yaml:"log_endpoint"`
 	Users              []User   `yaml:"users"`
 }
 
@@ -107,6 +109,21 @@ func (c *Config) validate() error {
 	if len(c.KeyTypes.Allowed) > 0 && len(c.KeyTypes.Disallowed) > 0 {
 		slog.Warn("both key_types.allowed and key_types.disallowed set, using allowed only")
 		c.KeyTypes.Disallowed = nil
+	}
+
+	if c.LogEndpoint != "" {
+		u, err := url.Parse(c.LogEndpoint)
+		if err != nil {
+			return fmt.Errorf("log_endpoint: %w", err)
+		}
+		switch u.Scheme {
+		case "tcp", "udp", "http", "https":
+		default:
+			return fmt.Errorf("log_endpoint: unsupported scheme %q (want tcp, udp, http, or https)", u.Scheme)
+		}
+		if u.Host == "" {
+			return fmt.Errorf("log_endpoint: missing host")
+		}
 	}
 
 	if c.ReconcileInterval != "" {

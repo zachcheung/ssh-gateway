@@ -75,24 +75,27 @@ func (m *Manager) groupMembers(group string) ([]string, error) {
 	return nil, scanner.Err()
 }
 
-func (m *Manager) Reconcile(desired map[string][]string) error {
+func (m *Manager) Reconcile(desired map[string][]string, logger *slog.Logger) (int, error) {
 	if err := m.ensureGroup(managedGroup); err != nil {
-		return fmt.Errorf("ensure group: %w", err)
+		return 0, fmt.Errorf("ensure group: %w", err)
 	}
 
 	current, err := m.ListUsers()
 	if err != nil {
-		return fmt.Errorf("list users: %w", err)
+		return 0, fmt.Errorf("list users: %w", err)
 	}
+
+	var changes int
 
 	for name := range current {
 		if _, ok := desired[name]; !ok {
-			slog.Debug("removing user", "user", name)
+			logger.Debug("removing user", "user", name)
 			if err := m.removeUser(name); err != nil {
-				slog.Warn("remove user failed", "user", name, "err", err)
+				logger.Warn("remove user failed", "user", name, "err", err)
 				continue
 			}
-			slog.Info("removed user", "user", name)
+			logger.Info("user removed", "user", name)
+			changes++
 		}
 	}
 
@@ -100,42 +103,45 @@ func (m *Manager) Reconcile(desired map[string][]string) error {
 		var oldKeys []string
 		isNew := !current[name]
 		if isNew {
-			slog.Debug("adding user", "user", name)
+			logger.Debug("adding user", "user", name)
 			if err := m.addUser(name); err != nil {
-				slog.Warn("add user failed", "user", name, "err", err)
+				logger.Warn("add user failed", "user", name, "err", err)
 				continue
 			}
+			logger.Info("user added", "user", name)
+			changes++
 		} else {
 			oldKeys, _ = m.readAuthorizedKeys(name)
 		}
 		if countKeys(keys) == 0 {
-			slog.Warn("user has no keys, access denied", "user", name)
+			logger.Warn("user has no keys, access denied", "user", name)
 		}
 		if err := m.writeAuthorizedKeys(name, keys); err != nil {
-			slog.Warn("write keys failed", "user", name, "err", err)
+			logger.Warn("write keys failed", "user", name, "err", err)
 			continue
 		}
 		if isNew {
 			for line, ak := range keysBySource(keys) {
-				slog.Info("key added", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
+				logger.Info("key added", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
 			}
 		} else if !keysEqual(oldKeys, keys) {
 			oldSet := keysBySource(oldKeys)
 			newSet := keysBySource(keys)
 			for line, ak := range newSet {
 				if _, exists := oldSet[line]; !exists {
-					slog.Info("key added", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
+					logger.Info("key added", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
 				}
 			}
 			for line, ak := range oldSet {
 				if _, exists := newSet[line]; !exists {
-					slog.Info("key removed", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
+					logger.Info("key removed", "user", name, "source", ak.source, "fingerprint", keyFingerprint(line))
 				}
 			}
+			changes++
 		}
 	}
 
-	return nil
+	return changes, nil
 }
 
 func (m *Manager) nextUID() (int, error) {
@@ -263,9 +269,12 @@ func (m *Manager) readAuthorizedKeys(name string) ([]string, error) {
 	var lines []string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" {
-			lines = append(lines, line)
+		// Skip blank lines and non-marker comments (e.g. the managed-by header).
+		// ResolveKeys output only contains marker comments, so these must match.
+		if line == "" || (strings.HasPrefix(line, "#") && !strings.HasPrefix(line, "# ssh-gateway:source=")) {
+			continue
 		}
+		lines = append(lines, line)
 	}
 	return lines, nil
 }
