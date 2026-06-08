@@ -1,5 +1,13 @@
 # Release Notes
 
+## v0.6.1
+
+- Fix: container recreation triggered spurious `user added` notifications
+  because `/etc/passwd`, `/etc/shadow`, `/etc/group` were reset to the image
+  defaults; symlink these files into `/var/lib/ssh-gateway-users/` (a Docker
+  named volume) so the user database persists across `docker compose up
+  --force-recreate` — a clean recreation now produces zero changes
+
 ## v0.6.0
 
 - Add `log_endpoint` config field: forward structured JSON logs to an external
