@@ -6,3 +6,11 @@ services:
       - '2201:22'
     volumes:
       - .:/etc/ssh-gateway:ro
+      - ssh:/etc/ssh
+      - home:/home
+      - users:/var/lib/ssh-gateway-users
+
+volumes:
+  ssh:
+  home:
+  users:

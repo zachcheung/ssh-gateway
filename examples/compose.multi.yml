@@ -8,6 +8,9 @@ services:
       - SSH_GATEWAY_PROJECT=alpha
     volumes:
       - .:/etc/ssh-gateway:ro
+      - alpha-ssh:/etc/ssh
+      - alpha-home:/home
+      - alpha-users:/var/lib/ssh-gateway-users
 
   ssh-gw-beta:
     image: ghcr.io/zachcheung/ssh-gateway
@@ -18,3 +21,14 @@ services:
       - SSH_GATEWAY_PROJECT=beta
     volumes:
       - .:/etc/ssh-gateway:ro
+      - beta-ssh:/etc/ssh
+      - beta-home:/home
+      - beta-users:/var/lib/ssh-gateway-users
+
+volumes:
+  alpha-ssh:
+  alpha-home:
+  alpha-users:
+  beta-ssh:
+  beta-home:
+  beta-users:

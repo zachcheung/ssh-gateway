@@ -8,6 +8,7 @@ services:
       - ./alpha:/etc/ssh-gateway:ro
       - ./alpha/ssh:/etc/ssh
       - ./alpha/home:/home
+      - alpha-users:/var/lib/ssh-gateway-users
 
   ssh-gw-beta:
     image: ghcr.io/zachcheung/ssh-gateway
@@ -18,3 +19,8 @@ services:
       - ./beta:/etc/ssh-gateway:ro
       - ./beta/ssh:/etc/ssh
       - ./beta/home:/home
+      - beta-users:/var/lib/ssh-gateway-users
+
+volumes:
+  alpha-users:
+  beta-users:
