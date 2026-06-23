@@ -1,5 +1,12 @@
 # Release Notes
 
+## v0.6.2
+
+- Fix: host keys with unsafe permissions (e.g. 0644 from a manually
+  populated volume) caused sshd to reject all keys and exit with a cryptic
+  "no hostkeys available -- exiting" error; `GenerateHostKeys` now detects
+  and corrects the mode to 0600 on startup, logging a warning
+
 ## v0.6.1
 
 - Fix: container recreation triggered spurious `user added` notifications
