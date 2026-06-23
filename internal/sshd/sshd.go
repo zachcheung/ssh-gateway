@@ -49,7 +49,13 @@ func GenerateHostKeys() error {
 	types := []string{"rsa", "ecdsa", "ed25519"}
 	for _, t := range types {
 		keyPath := fmt.Sprintf("%s/ssh_host_%s_key", hostKeyDir, t)
-		if _, err := os.Stat(keyPath); err == nil {
+		if info, err := os.Stat(keyPath); err == nil {
+			if mode := info.Mode().Perm(); mode != 0600 {
+				slog.Warn("host key has unsafe permissions, fixing", "path", keyPath, "mode", mode)
+				if err := os.Chmod(keyPath, 0600); err != nil {
+					return fmt.Errorf("chmod %s key: %w", t, err)
+				}
+			}
 			continue
 		}
 		slog.Info("generating host key", "type", t)

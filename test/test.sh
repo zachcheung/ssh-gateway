@@ -770,6 +770,27 @@ fi
 
 rm -f /config/config.yml
 
+run_test "Host key permissions auto-fix"
+
+# Break one host key's permissions to simulate a volume with wrong perms.
+docker exec "$(container_id gateway)" chmod 0644 /etc/ssh/ssh_host_ed25519_key
+
+# Restart so GenerateHostKeys runs again; it should detect and fix the bad perms.
+docker restart "$(container_id gateway)" > /dev/null
+sleep 4
+
+if ssh_jump alice id_alice "echo hostkey-fix-ok" 2>/dev/null | grep -q "hostkey-fix-ok"; then
+  ok "sshd started after auto-fixing unsafe host key permissions"
+else
+  ng "sshd should start after fixing host key permissions"
+fi
+
+if docker logs "$(container_id gateway)" 2>&1 | grep -q "unsafe permissions"; then
+  ok "warning logged for unsafe host key permissions"
+else
+  ng "should log warning about unsafe host key permissions"
+fi
+
 # --- Summary ---
 printf "\n== Results: %d passed, %d failed ==\n" "$pass" "$fail"
 [ "$fail" -eq 0 ] || exit 1
